@@ -7,6 +7,7 @@ import {
   Navigation,
   Clock,
   ChevronRight,
+  ChevronLeft,
   MapPin,
   AlertCircle,
   Cloud,
@@ -42,6 +43,61 @@ const DirectionArrow = ({ deg, size = 16, className = "" }) => (
   />
 );
 
+const CompassRose = ({ title, priorities, onPriorityChange, colorClass = "text-cyan-500" }) => {
+  const sectors = [0, 45, 90, 135, 180, 225, 270, 315];
+  const sectorNames = ["N", "NO", "Ö", "SO", "S", "SV", "V", "NV"];
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">{title}</span>
+      <div className="relative w-24 h-24 lg:w-32 lg:h-32">
+        <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible">
+          {sectors.map((deg, i) => {
+            const level = priorities[deg] || 0;
+            const opacity = level === 0 ? 0.05 : 0.2 + (level / 5) * 0.8;
+
+            const startAngle = deg - 22.5;
+            const endAngle = deg + 22.5;
+            const x1 = 50 + 40 * Math.sin(startAngle * Math.PI / 180);
+            const y1 = 50 - 40 * Math.cos(startAngle * Math.PI / 180);
+            const x2 = 50 + 40 * Math.sin(endAngle * Math.PI / 180);
+            const y2 = 50 - 40 * Math.cos(endAngle * Math.PI / 180);
+
+            return (
+              <path
+                key={deg}
+                d={`M 50 50 L ${x1} ${y1} A 40 40 0 0 1 ${x2} ${y2} Z`}
+                className={`cursor-pointer transition-all duration-300 ${colorClass} hover:opacity-100`}
+                fill="currentColor"
+                fillOpacity={opacity}
+                stroke="currentColor"
+                strokeOpacity={level > 0 ? 0.5 : 0.1}
+                strokeWidth={level > 0 ? 1.5 : 0.5}
+                onClick={() => onPriorityChange(deg)}
+              />
+            );
+          })}
+          {sectors.map((deg, i) => (
+            <text
+              key={`label-${deg}`}
+              x={50 + 52 * Math.sin(deg * Math.PI / 180)}
+              y={50 - 52 * Math.cos(deg * Math.PI / 180)}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize="9"
+              fontWeight="900"
+              className="fill-neutral-600 pointer-events-none uppercase tracking-tighter"
+            >
+              {sectorNames[i]}
+            </text>
+          ))}
+          <circle cx="50" cy="50" r="2" className="fill-neutral-800" />
+        </svg>
+      </div>
+    </div>
+  );
+};
+
 const App = () => {
   const [activeSpot, setActiveSpot] = useState(SPOTS[0]);
   const [weatherData, setWeatherData] = useState(null);
@@ -51,12 +107,48 @@ const App = () => {
   const [selectedDayIndex, setSelectedDayIndex] = useState(null);
   const mainContentRef = useRef(null);
 
-  const [weights, setWeights] = useState({
-    wind: 3,
-    waves: 5,
-    temp: 1,
-    sun: 1
+  // Default settings for a spot
+  const DEFAULT_SETTINGS = {
+    weights: { wind: 3, waves: 5, temp: 1, sun: 1 },
+    windPriorities: { 0: 0, 45: 0, 90: 0, 135: 0, 180: 0, 225: 0, 270: 0, 315: 0 },
+    wavePriorities: { 0: 0, 45: 0, 90: 0, 135: 0, 180: 0, 225: 0, 270: 0, 315: 0 }
+  };
+
+  // Persisted state for all spots
+  const [allSettings, setAllSettings] = useState(() => {
+    const saved = localStorage.getItem('svaj_spot_settings_v2');
+    return saved ? JSON.parse(saved) : {};
   });
+
+  // Sync to local storage
+  useEffect(() => {
+    localStorage.setItem('svaj_spot_settings_v2', JSON.stringify(allSettings));
+  }, [allSettings]);
+
+  // Current spot's settings with fallback to defaults
+  const currentSettings = allSettings[activeSpot.id] || DEFAULT_SETTINGS;
+
+  const updateCurrentSettings = (updateFn) => {
+    setAllSettings(prev => ({
+      ...prev,
+      [activeSpot.id]: updateFn(prev[activeSpot.id] || { ...DEFAULT_SETTINGS })
+    }));
+  };
+
+  const handleWeightChange = (key) => {
+    updateCurrentSettings(prev => ({
+      ...prev,
+      weights: { ...prev.weights, [key]: (prev.weights[key] % 5) + 1 }
+    }));
+  };
+
+  const handlePriorityChange = (type, deg) => {
+    const field = type === 'wind' ? 'windPriorities' : 'wavePriorities';
+    updateCurrentSettings(prev => ({
+      ...prev,
+      [field]: { ...prev[field], [deg]: (prev[field][deg] + 1) % 6 }
+    }));
+  };
 
   const handleSpotSelect = (spot) => {
     setActiveSpot(spot);
@@ -109,14 +201,26 @@ const App = () => {
     const wind = weatherData.weather.hourly.wind_speed_10m[hourIdx] || 0;
     const temp = weatherData.weather.hourly.temperature_2m[hourIdx] || 0;
     const clouds = weatherData.weather.hourly.cloudcover[hourIdx] || 0;
+    const windDir = weatherData.weather.hourly.wind_direction_10m[hourIdx] || 0;
+    const waveDir = weatherData.marine.hourly.wave_direction[hourIdx] || 0;
 
-    const waveScore = Math.min(wave * 2, 5) * weights.waves;
-    const windScore = (wind > 4 && wind < 12 ? 5 : wind > 12 ? 2 : 1) * weights.wind;
+    const windSector = Math.round(windDir / 45) * 45 % 360;
+    const waveSector = Math.round(waveDir / 45) * 45 % 360;
+
+    const { weights, windPriorities, wavePriorities } = currentSettings;
+
+    const windDirBoost = (windPriorities[windSector] / 5) * 5;
+    const waveDirBoost = (wavePriorities[waveSector] / 5) * 5;
+
+    const waveScore = (Math.min(wave * 2, 5) * weights.waves) + (waveDirBoost * (weights.waves / 2));
+    const windScore = ((wind > 4 && wind < 12 ? 5 : wind > 12 ? 2 : 1) * weights.wind) + (windDirBoost * (weights.wind / 2));
     const tempScore = (temp > 10 ? 5 : temp > 0 ? 3 : 1) * weights.temp;
     const sunScore = (clouds < 30 ? 5 : 2) * weights.sun;
 
     const totalWeight = weights.waves + weights.wind + weights.temp + weights.sun;
-    return Math.round(((waveScore + windScore + tempScore + sunScore) / (totalWeight * 5)) * 10);
+    const directionWeight = (windPriorities[windSector] > 0 ? weights.wind / 2 : 0) + (wavePriorities[waveSector] > 0 ? weights.waves / 2 : 0);
+
+    return Math.round(((waveScore + windScore + tempScore + sunScore) / ((totalWeight + directionWeight) * 5)) * 10);
   };
 
   const currentHour = new Date().getHours();
@@ -165,8 +269,8 @@ const App = () => {
                 key={spot.id}
                 onClick={() => handleSpotSelect(spot)}
                 className={`w-full text-left p-4 rounded-2xl transition-all duration-200 flex items-center justify-between group active:scale-95 ${activeSpot.id === spot.id
-                    ? 'bg-cyan-500 text-black font-black shadow-xl shadow-cyan-500/20 translate-x-1'
-                    : 'hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200'
+                  ? 'bg-cyan-500 text-black font-black shadow-xl shadow-cyan-500/20 translate-x-1'
+                  : 'hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200'
                   }`}
               >
                 <div>
@@ -202,29 +306,64 @@ const App = () => {
             </div>
 
             {/* Viktning av parametrar */}
-            <div className="bg-neutral-900/40 p-5 rounded-[2rem] border border-neutral-800/50 backdrop-blur-xl w-full md:w-auto shadow-2xl">
-              <p className="text-[10px] text-neutral-500 font-black uppercase mb-4 text-center tracking-[0.1em]">Prioritera Förhållanden</p>
-              <div className="flex justify-around md:justify-start gap-4">
+            <div className="flex flex-col lg:flex-row gap-6 bg-neutral-900/40 p-6 lg:p-8 rounded-[3rem] border border-neutral-800/50 backdrop-blur-xl w-full md:w-auto shadow-2xl">
+              <div className="flex flex-col justify-center border-r border-white/5 pr-6 hidden lg:flex">
+                <p className="text-[10px] text-neutral-500 font-black uppercase mb-4 text-center tracking-[0.1em]">Prioritera Förhållanden</p>
+                <div className="flex gap-4">
+                  {[
+                    { key: 'waves', icon: Waves, color: 'text-cyan-400' },
+                    { key: 'wind', icon: Wind, color: 'text-blue-400' },
+                    { key: 'temp', icon: Thermometer, color: 'text-orange-400' },
+                    { key: 'sun', icon: Sun, color: 'text-yellow-400' }
+                  ].map(item => (
+                    <div key={item.key} className="flex flex-col items-center gap-2">
+                      <button
+                        onClick={() => handleWeightChange(item.key)}
+                        className={`p-3 rounded-2xl transition-all active:scale-90 bg-neutral-800 hover:bg-neutral-700 border border-white/5 ${item.color}`}
+                      >
+                        <item.icon size={22} />
+                      </button>
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map(i => (
+                          <div key={i} className={`h-1 w-1 rounded-full transition-colors ${i <= currentSettings.weights[item.key] ? 'bg-cyan-500' : 'bg-neutral-800'}`} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Mobilvyn visar bara vikter först */}
+              <div className="lg:hidden flex justify-around w-full mb-6">
                 {[
                   { key: 'waves', icon: Waves, color: 'text-cyan-400' },
                   { key: 'wind', icon: Wind, color: 'text-blue-400' },
                   { key: 'temp', icon: Thermometer, color: 'text-orange-400' },
                   { key: 'sun', icon: Sun, color: 'text-yellow-400' }
                 ].map(item => (
-                  <div key={item.key} className="flex flex-col items-center gap-2">
-                    <button
-                      onClick={() => setWeights(prev => ({ ...prev, [item.key]: (prev[item.key] % 5) + 1 }))}
-                      className={`p-3 rounded-2xl transition-all active:scale-90 bg-neutral-800 hover:bg-neutral-700 border border-white/5 ${item.color}`}
-                    >
-                      <item.icon size={22} />
-                    </button>
-                    <div className="flex gap-1">
-                      {[1, 2, 3, 4, 5].map(i => (
-                        <div key={i} className={`h-1 w-1 rounded-full transition-colors ${i <= weights[item.key] ? 'bg-cyan-500' : 'bg-neutral-800'}`} />
-                      ))}
-                    </div>
-                  </div>
+                  <button
+                    key={item.key}
+                    onClick={() => handleWeightChange(item.key)}
+                    className={`p-3 rounded-2xl transition-all active:scale-90 bg-neutral-800 border border-white/5 ${item.color}`}
+                  >
+                    <item.icon size={22} />
+                  </button>
                 ))}
+              </div>
+
+              <div className="flex gap-8 lg:gap-12 justify-center lg:justify-start">
+                <CompassRose
+                  title="Vågriktning"
+                  priorities={currentSettings.wavePriorities}
+                  onPriorityChange={(deg) => handlePriorityChange('wave', deg)}
+                  colorClass="text-cyan-500"
+                />
+                <CompassRose
+                  title="Vindriktning"
+                  priorities={currentSettings.windPriorities}
+                  onPriorityChange={(deg) => handlePriorityChange('wind', deg)}
+                  colorClass="text-blue-500"
+                />
               </div>
             </div>
           </div>
@@ -390,6 +529,7 @@ const App = () => {
           dayIndex={selectedDayIndex}
           weatherData={weatherData}
           onClose={() => setSelectedDayIndex(null)}
+          setSelectedDayIndex={setSelectedDayIndex}
           getSurfScore={getSurfScore}
         />
       )}
@@ -409,11 +549,36 @@ const App = () => {
 };
 
 // MODAL-KOMPONENT FÖR DETALJERAD GRAF
-const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore }) => {
+const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore, setSelectedDayIndex }) => {
+  const [hoverIndex, setHoverIndex] = useState(null);
   const dayStartIdx = dayIndex * 24;
   const hours = Array.from({ length: 24 }).map((_, h) => dayStartIdx + h);
   const date = new Date();
   date.setDate(date.getDate() + dayIndex);
+
+  // Navigations-logik
+  const goToPreviousDay = () => {
+    if (dayIndex > 0) setSelectedDayIndex(dayIndex - 1);
+  };
+  const goToNextDay = () => {
+    if (dayIndex < 9) setSelectedDayIndex(dayIndex + 1);
+  };
+
+  // Tooltip-logik
+  const handleMouseMove = (e) => {
+    const svg = e.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const chartAreaWidth = chartW - padding * 2;
+    const relativeX = (x / rect.width) * chartW - padding;
+    const hour = Math.round((relativeX / chartAreaWidth) * 23);
+
+    if (hour >= 0 && hour <= 23) {
+      setHoverIndex(hour);
+    } else {
+      setHoverIndex(null);
+    }
+  };
 
   // Beräkna maxvärden för skalning av Y-axel
   const maxWave = Math.max(...hours.map(h => weatherData.marine.hourly.wave_height[h] || 0), 1);
@@ -425,8 +590,8 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore }) => {
 
   // SVG-inställningar
   const chartW = 1000;
-  const chartH = 300;
-  const padding = 60;
+  const chartH = 450;
+  const padding = 50;
 
   // Generera kurva
   const getPath = (data, max, min = 0) => {
@@ -444,15 +609,29 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore }) => {
 
         {/* Header */}
         <div className="p-8 border-b border-white/5 flex items-center justify-between shrink-0 bg-neutral-900/50 backdrop-blur-md">
-          <div>
-            <h3 className="text-3xl font-black uppercase italic tracking-tighter">
-              {date.toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })}
-            </h3>
-            <div className="flex items-center gap-4 mt-2">
-              <span className="text-neutral-500 text-xs font-bold uppercase tracking-widest">Detaljerad Tim-analys</span>
-              <div className="h-1 w-1 rounded-full bg-neutral-700" />
-              <span className="text-cyan-500 text-xs font-black uppercase tracking-widest">{weatherData.weather.timezone}</span>
+          <div className="flex items-center gap-6">
+            <button
+              onClick={goToPreviousDay}
+              disabled={dayIndex === 0}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all border border-white/5 ${dayIndex === 0 ? 'opacity-20 cursor-not-allowed' : 'bg-white/5 hover:bg-white/10 active:scale-95 text-cyan-500'}`}
+            >
+              <ChevronLeft size={24} />
+            </button>
+            <div>
+              <h3 className="text-3xl font-black uppercase italic tracking-tighter">
+                {date.toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </h3>
+              <div className="flex items-center gap-4 mt-1">
+                <span className="text-neutral-500 text-xs font-bold uppercase tracking-widest italic">Detaljerad Tim-analys</span>
+              </div>
             </div>
+            <button
+              onClick={goToNextDay}
+              disabled={dayIndex === 9}
+              className={`w-12 h-12 rounded-full flex items-center justify-center transition-all border border-white/5 ${dayIndex === 9 ? 'opacity-20 cursor-not-allowed' : 'bg-white/5 hover:bg-white/10 active:scale-95 text-cyan-500'}`}
+            >
+              <ChevronRight size={24} />
+            </button>
           </div>
           <button
             onClick={onClose}
@@ -480,8 +659,20 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore }) => {
               </div>
             </div>
 
-            <div className="relative bg-black/60 rounded-[2.5rem] p-4 lg:p-8 border border-white/5 overflow-x-auto shadow-inner">
-              <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full min-w-[900px] h-[350px] overflow-visible select-none">
+            <div className="relative bg-black/60 rounded-[2.5rem] p-4 lg:p-6 border border-white/5 overflow-x-auto shadow-inner">
+              <svg
+                viewBox={`0 0 ${chartW} ${chartH}`}
+                className="w-full min-w-[900px] h-[450px] overflow-visible select-none"
+                onMouseMove={handleMouseMove}
+                onMouseLeave={() => setHoverIndex(null)}
+              >
+
+                <defs>
+                  <linearGradient id="scoreGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.5" />
+                    <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.1" />
+                  </linearGradient>
+                </defs>
 
                 {/* Rutnät (Grid) */}
                 {[0, 0.25, 0.5, 0.75, 1].map(tick => {
@@ -492,7 +683,7 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore }) => {
                 })}
 
                 {/* Y-AXEL VÄRDEN (Vind m/s till vänster) */}
-                <text x={padding - 10} y={padding} textAnchor="end" fill="#3b82f6" fontSize="10" fontWeight="900" className="uppercase">Vind m/s</text>
+                <text x={padding - 10} y={padding - 15} textAnchor="end" fill="#3b82f6" fontSize="10" fontWeight="900" className="uppercase">Vind m/s</text>
                 {[0, 0.5, 1].map(tick => (
                   <text key={tick} x={padding - 10} y={padding + (1 - tick) * (chartH - padding * 2) + 4} textAnchor="end" fill="#3b82f6" fontSize="11" fontWeight="bold">
                     {Math.round(tick * maxWind)}
@@ -500,12 +691,46 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore }) => {
                 ))}
 
                 {/* Y-AXEL VÄRDEN (Vågor m till höger) */}
-                <text x={chartW - padding + 10} y={padding} textAnchor="start" fill="#06b6d4" fontSize="10" fontWeight="900" className="uppercase">Vågor m</text>
+                <text x={chartW - padding + 10} y={padding - 15} textAnchor="start" fill="#06b6d4" fontSize="10" fontWeight="900" className="uppercase">Vågor m</text>
                 {[0, 0.5, 1].map(tick => (
                   <text key={tick} x={chartW - padding + 10} y={padding + (1 - tick) * (chartH - padding * 2) + 4} textAnchor="start" fill="#06b6d4" fontSize="11" fontWeight="bold">
                     {(tick * maxWave).toFixed(1)}
                   </text>
                 ))}
+
+                {/* --- RITA STAPLAR --- */}
+                {/* SVAJ Score Bars */}
+                {hours.map((h, i) => {
+                  const score = getSurfScore(h);
+                  const x = padding + (i / 23) * (chartW - padding * 2);
+                  const barWidth = (chartW - padding * 2) / 24 * 0.6;
+                  const barHeight = (score / 10) * (chartH - padding * 2);
+                  return (
+                    <g key={`score-group-${i}`}>
+                      <rect
+                        x={x - barWidth / 2}
+                        y={chartH - padding - barHeight}
+                        width={barWidth}
+                        height={barHeight}
+                        fill="url(#scoreGradient)"
+                        className="transition-all duration-700"
+                      />
+                      {score > 0 && (
+                        <text
+                          x={x}
+                          y={chartH - padding - barHeight - 5}
+                          textAnchor="middle"
+                          fill="#06b6d4"
+                          fontSize="10"
+                          fontWeight="900"
+                          className="opacity-80"
+                        >
+                          {score}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
 
                 {/* --- RITA KURVOR --- */}
 
@@ -513,16 +738,16 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore }) => {
                 <path d={getPath(weatherData.weather.hourly.wind_gusts_10m, maxWind)} fill="none" stroke="#3b82f6" strokeWidth="2" strokeDasharray="6,4" strokeOpacity="0.4" />
 
                 {/* Vind (Heldragen) */}
-                <path d={getPath(weatherData.weather.hourly.wind_speed_10m, maxWind)} fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" />
+                <path d={getPath(weatherData.weather.hourly.wind_speed_10m, maxWind)} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" />
 
                 {/* Vågperiod (Streckad) */}
                 <path d={getPath(weatherData.marine.hourly.wave_period, maxPeriod)} fill="none" stroke="#06b6d4" strokeWidth="2" strokeDasharray="6,4" strokeOpacity="0.4" />
 
                 {/* Vågor (Heldragen) */}
-                <path d={getPath(weatherData.marine.hourly.wave_height, maxWave)} fill="none" stroke="#06b6d4" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={getPath(weatherData.marine.hourly.wave_height, maxWave)} fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 
                 {/* Temperatur (Kontrastfärg heldragen) */}
-                <path d={getPath(weatherData.weather.hourly.temperature_2m, maxTemp, minTemp)} fill="none" stroke="#f59e0b" strokeWidth="3" strokeLinecap="round" />
+                <path d={getPath(weatherData.weather.hourly.temperature_2m, maxTemp, minTemp)} fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
 
                 {/* X-AXEL TID */}
                 {Array.from({ length: 24 }).map((_, i) => (
@@ -539,7 +764,61 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore }) => {
                     />
                   </g>
                 ))}
+
+                {/* --- TOOLTIP OVERLAY --- */}
+                {hoverIndex !== null && (
+                  <g pointerEvents="none">
+                    <line
+                      x1={padding + (hoverIndex / 23) * (chartW - padding * 2)}
+                      y1={padding}
+                      x2={padding + (hoverIndex / 23) * (chartW - padding * 2)}
+                      y2={chartH - padding}
+                      stroke="#06b6d4"
+                      strokeWidth="1"
+                      strokeDasharray="4,2"
+                    />
+
+                    {/* Tooltip Box */}
+                    <g transform={`translate(${padding + (hoverIndex / 23) * (chartW - padding * 2) + (hoverIndex > 18 ? -215 : 15)}, ${padding})`}>
+                      <rect
+                        width="200"
+                        height="130"
+                        rx="16"
+                        fill="rgba(0,0,0,0.85)"
+                        stroke="rgba(6,182,212,0.3)"
+                        strokeWidth="1"
+                        className="backdrop-blur-xl"
+                      />
+                      <text x="15" y="25" fill="#fff" fontSize="12" fontWeight="900" className="uppercase italic tracking-tighter">
+                        Kl {String(hoverIndex).padStart(2, '0')}:00
+                      </text>
+
+                      <text x="15" y="50" fill="#06b6d4" fontSize="10" fontWeight="900" className="uppercase opacity-60">SVAJ Score</text>
+                      <text x="185" y="50" textAnchor="end" fill="#06b6d4" fontSize="12" fontWeight="900">{getSurfScore(dayStartIdx + hoverIndex)}</text>
+
+                      <text x="15" y="70" fill="#a3a3a3" fontSize="10" fontWeight="900" className="uppercase opacity-60">Vågor</text>
+                      <text x="185" y="70" textAnchor="end" fill="#fff" fontSize="10" fontWeight="900">
+                        {weatherData.marine.hourly.wave_height[dayStartIdx + hoverIndex]}m / {weatherData.marine.hourly.wave_period[dayStartIdx + hoverIndex]}s / {weatherData.marine.hourly.wave_direction[dayStartIdx + hoverIndex]}°
+                      </text>
+
+                      <text x="15" y="90" fill="#3b82f6" fontSize="10" fontWeight="900" className="uppercase opacity-60">Vind</text>
+                      <text x="185" y="90" textAnchor="end" fill="#fff" fontSize="10" fontWeight="900">
+                        {weatherData.weather.hourly.wind_speed_10m[dayStartIdx + hoverIndex]} ({weatherData.weather.hourly.wind_gusts_10m[dayStartIdx + hoverIndex]}) m/s / {weatherData.weather.hourly.wind_direction_10m[dayStartIdx + hoverIndex]}°
+                      </text>
+
+                      <text x="15" y="110" fill="#f59e0b" fontSize="10" fontWeight="900" className="uppercase opacity-60">Temp</text>
+                      <text x="185" y="110" textAnchor="end" fill="#fff" fontSize="10" fontWeight="900">
+                        {weatherData.weather.hourly.temperature_2m[dayStartIdx + hoverIndex]}°C
+                      </text>
+                    </g>
+                  </g>
+                )}
               </svg>
+              <div className="mt-4 text-center">
+                <span className="text-[10px] text-cyan-500 font-black uppercase tracking-[0.2em] italic">
+                  Score baserat på prioriterade förhållanden
+                </span>
+              </div>
             </div>
           </div>
 
