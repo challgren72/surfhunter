@@ -23,18 +23,18 @@ import {
 import logo from './assets/images/svaj_logo_gradient_anim.svg';
 
 const SPOTS = [
-  { id: 1, name: "Torö Stenstrand", lat: 58.82, lng: 17.84, region: "Stockholm" },
-  { id: 2, name: "Apelviken", lat: 57.08, lng: 12.24, region: "Varberg" },
-  { id: 3, name: "Kåseberga", lat: 55.38, lng: 14.06, region: "Österlen" },
-  { id: 4, name: "Mölle", lat: 56.28, lng: 12.49, region: "Skåne" },
-  { id: 5, name: "Salusand", lat: 63.49, lng: 19.26, region: "Ångermanland" },
-  { id: 6, name: "Knäbäckshusen", lat: 55.59, lng: 14.28, region: "Österlen" },
-  { id: 7, name: "Böda Sand", lat: 57.27, lng: 17.05, region: "Öland" },
-  { id: 8, name: "Tylösand", lat: 56.64, lng: 12.73, region: "Halmstad" },
-  { id: 9, name: "Ekeviken", lat: 57.96, lng: 19.23, region: "Fårö" },
-  { id: 10, name: "Smitingen", lat: 62.61, lng: 17.96, region: "Härnösand" },
-  { id: 11, name: "Skrea Strand", lat: 56.88, lng: 12.50, region: "Falkenberg" },
-  { id: 12, name: "Träslövsläge", lat: 57.06, lng: 12.27, region: "Varberg" },
+  { id: 1, name: "Torö Stenstrand", lat: 58.82, lng: 17.84, region: "Stockholm", description: "Sveriges surfmecka #1. Stenstrand som kräver kraftigt sydligt tryck för att vakna ordentligt." },
+  { id: 2, name: "Apelviken", lat: 57.08, lng: 12.24, region: "Varberg", description: "Västkustens populäraste strand för surf och windsurf med sandbotten och långa vågor." },
+  { id: 3, name: "Kåseberga", lat: 55.38, lng: 14.06, region: "Österlen", description: "En av Sveriges vackraste platser. Kräver rätt vindriktning men kan ge fantastisk surf under rätt förhållanden." },
+  { id: 4, name: "Mölle", lat: 56.28, lng: 12.49, region: "Skåne", description: "Klassisk spot vid Kullaberg. Stenbotten och dramatiska omgivningar." },
+  { id: 5, name: "Salusand", lat: 63.49, lng: 19.26, region: "Ångermanland", description: "Norrlands svar på Hawaii. En fantastisk sandstrand som levererar när Bottenhavet ryter till." },
+  { id: 6, name: "Knäbäckshusen", lat: 55.59, lng: 14.28, region: "Österlen", description: "Magisk sandstrand med tropisk känsla. Kräver ostligt svep för att fungera." },
+  { id: 7, name: "Böda Sand", lat: 57.27, lng: 17.05, region: "Öland", description: "Milsvid sandstrand på Öland som fungerar vid kraftiga ostvindar." },
+  { id: 8, name: "Tylösand", lat: 56.64, lng: 12.73, region: "Halmstad", description: "Klassisk västkuststrand med sandbotten. Bra för alla nivåer vid rätt förhållanden." },
+  { id: 9, name: "Ekeviken", lat: 57.96, lng: 19.23, region: "Fårö", description: "Gotlands pärla. Exponerat läge som tar upp det mesta som norra Östersjön bjuder på." },
+  { id: 10, name: "Smitingen", lat: 62.61, lng: 17.96, region: "Härnösand", description: "Fin sandstrand i vacker natur. Funkar bäst vid vindar från sydost." },
+  { id: 11, name: "Skrea Strand", lat: 56.88, lng: 12.50, region: "Falkenberg", description: "Långgrund sandstrand som är perfekt för nybörjare vid mindre swell." },
+  { id: 12, name: "Träslövsläge", lat: 57.06, lng: 12.27, region: "Varberg", description: "Legendariskt ställe för vind- och kitesurf. Funkar i de flesta vindriktningar." },
 ];
 
 const SCORE_TEXTS = {
@@ -65,7 +65,7 @@ const DirectionArrow = ({ deg, size = 16, className = "", strokeWidth = 2 }) => 
   />
 );
 
-const CombinedRose = ({ rules }) => {
+const ConditionRose = ({ rules, type, label, unit, colorClass, maxRange = 20 }) => {
   const sectors = [0, 45, 90, 135, 180, 225, 270, 315];
   const sectorNames = ["N", "NO", "Ö", "SO", "S", "SV", "V", "NV"];
 
@@ -77,102 +77,83 @@ const CombinedRose = ({ rules }) => {
     return 0.05;
   };
 
-  const getMaxScore = (deg, type) => {
-    let max = 0;
+  const getScoreData = (deg) => {
+    let bestScore = 0;
+    let maxValue = 0;
+    const typeKey = type === 'wave' ? 'waveDirs' : 'windDirs';
+    const valueMaxKey = type === 'wave' ? 'periodMax' : 'windMax';
+    const valueMinKey = type === 'wave' ? 'periodMin' : 'windMin';
+
+    // We check all scores to find the strongest match for this direction
     for (let s = 2; s <= 5; s++) {
-      if (rules[s] && rules[s][type].includes(deg)) max = s;
+      if (rules[s] && rules[s][typeKey].includes(deg)) {
+        bestScore = s;
+        // For wind, the "relevant" visualization value is often the max allowed
+        // For wave period, it's the period range.
+        maxValue = rules[s][valueMaxKey];
+      }
     }
-    return max;
+    return { score: bestScore, value: maxValue };
   };
 
   return (
-    <div className="flex flex-col items-center gap-4">
-      <div className="flex gap-4 mb-1">
-        <div className="flex items-center gap-1.5">
-          <div className="w-2 h-2 rounded-full bg-cyan-400" />
-          <span className="text-[8px] font-black text-neutral-500 uppercase tracking-widest">Vågor (Inre)</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-2 h-2 rounded-full bg-blue-500" />
-          <span className="text-[8px] font-black text-neutral-500 uppercase tracking-widest">Vind (Yttre)</span>
-        </div>
-      </div>
-
-      <div className="relative w-36 h-36">
+    <div className="flex flex-col items-center">
+      <div className="relative w-32 h-32 md:w-36 md:h-36">
         <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible">
+          {/* Background Reference Lines */}
+          <circle cx="50" cy="50" r="45" className="fill-white/[0.02] stroke-white/5" strokeWidth="0.5" />
+          {[15, 30].map(r => (
+            <circle key={r} cx="50" cy="50" r={r} className="fill-none stroke-white/[0.03]" strokeWidth="0.3" strokeDasharray="1 2" />
+          ))}
+
           {sectors.map((deg) => {
-            const waveScore = getMaxScore(deg, 'waveDirs');
-            const windScore = getMaxScore(deg, 'windDirs');
+            const { score, value } = getScoreData(deg);
+            // Normalize radius based on maxRange. Minimum radius for visibility if value is small.
+            const radius = score > 0 ? Math.max((value / maxRange) * 45, 8) : 5;
 
-            const startAngle = deg - 22.5;
-            const endAngle = deg + 22.5;
+            const startAngle = deg - 22.1; // Small gap between sectors
+            const endAngle = deg + 22.1;
 
-            // Yttre ring (Vind)
-            const r2_out = 42;
-            const r2_in = 28;
-            const x1_out = 50 + r2_out * Math.sin(startAngle * Math.PI / 180);
-            const y1_out = 50 - r2_out * Math.cos(startAngle * Math.PI / 180);
-            const x2_out = 50 + r2_out * Math.sin(endAngle * Math.PI / 180);
-            const y2_out = 50 - r2_out * Math.cos(endAngle * Math.PI / 180);
-            const x1_in = 50 + r2_in * Math.sin(startAngle * Math.PI / 180);
-            const y1_in = 50 - r2_in * Math.cos(startAngle * Math.PI / 180);
-            const x2_in = 50 + r2_in * Math.sin(endAngle * Math.PI / 180);
-            const y2_in = 50 - r2_in * Math.cos(endAngle * Math.PI / 180);
-
-            // Inre ring (Vågor)
-            const r1_out = 26;
-            const r1_in = 12;
-            const ix1_out = 50 + r1_out * Math.sin(startAngle * Math.PI / 180);
-            const iy1_out = 50 - r1_out * Math.cos(startAngle * Math.PI / 180);
-            const ix2_out = 50 + r1_out * Math.sin(endAngle * Math.PI / 180);
-            const iy2_out = 50 - r1_out * Math.cos(endAngle * Math.PI / 180);
-            const ix1_in = 50 + r1_in * Math.sin(startAngle * Math.PI / 180);
-            const iy1_in = 50 - r1_in * Math.cos(startAngle * Math.PI / 180);
-            const ix2_in = 50 + r1_in * Math.sin(endAngle * Math.PI / 180);
-            const iy2_in = 50 - r1_in * Math.cos(endAngle * Math.PI / 180);
+            const x1 = 50 + radius * Math.sin(startAngle * Math.PI / 180);
+            const y1 = 50 - radius * Math.cos(startAngle * Math.PI / 180);
+            const x2 = 50 + radius * Math.sin(endAngle * Math.PI / 180);
+            const y2 = 50 - radius * Math.cos(endAngle * Math.PI / 180);
 
             return (
-              <g key={deg}>
-                {/* Vind-sektion */}
-                <path
-                  d={`M ${x1_in} ${y1_in} L ${x1_out} ${y1_out} A ${r2_out} ${r2_out} 0 0 1 ${x2_out} ${y2_out} L ${x2_in} ${y2_in} A ${r2_in} ${r2_in} 0 0 0 ${x1_in} ${y1_in} Z`}
-                  className={`transition-all duration-1000 ${windScore > 0 ? 'text-blue-500' : 'text-neutral-800'}`}
-                  fill="currentColor"
-                  fillOpacity={getOpacity(windScore)}
-                  stroke="currentColor"
-                  strokeOpacity={windScore > 0 ? 0.3 : 0.05}
-                  strokeWidth="0.5"
-                />
-                {/* Våg-sektion */}
-                <path
-                  d={`M ${ix1_in} ${iy1_in} L ${ix1_out} ${iy1_out} A ${r1_out} ${r1_out} 0 0 1 ${ix2_out} ${iy2_out} L ${ix2_in} ${iy2_in} A ${r1_in} ${r1_in} 0 0 0 ${ix1_in} ${iy1_in} Z`}
-                  className={`transition-all duration-1000 ${waveScore > 0 ? 'text-cyan-400' : 'text-neutral-800'}`}
-                  fill="currentColor"
-                  fillOpacity={getOpacity(waveScore)}
-                  stroke="currentColor"
-                  strokeOpacity={waveScore > 0 ? 0.3 : 0.05}
-                  strokeWidth="0.5"
-                />
-              </g>
+              <path
+                key={deg}
+                d={`M 50 50 L ${x1} ${y1} A ${radius} ${radius} 0 0 1 ${x2} ${y2} Z`}
+                className={`transition-all duration-700 ${score > 0 ? colorClass : 'text-neutral-800'}`}
+                fill="currentColor"
+                fillOpacity={getOpacity(score)}
+                stroke="currentColor"
+                strokeOpacity={score > 0 ? 0.3 : 0}
+                strokeWidth="0.5"
+              />
             );
           })}
 
+          {/* Labels */}
           {sectors.map((deg, i) => (
             <text
               key={`label-${deg}`}
-              x={50 + 51 * Math.sin(deg * Math.PI / 180)}
-              y={50 - 51 * Math.cos(deg * Math.PI / 180)}
+              x={50 + 54 * Math.sin(deg * Math.PI / 180)}
+              y={50 - 54 * Math.cos(deg * Math.PI / 180)}
               textAnchor="middle"
               dominantBaseline="middle"
-              fontSize="7"
+              fontSize="6"
               fontWeight="900"
               className="fill-neutral-600 uppercase tracking-tighter"
             >
               {sectorNames[i]}
             </text>
           ))}
-          <circle cx="50" cy="50" r="1" className="fill-neutral-900" />
+          <circle cx="50" cy="50" r="1.5" className="fill-neutral-950" />
         </svg>
+      </div>
+      <div className="mt-4 flex flex-col items-center gap-0.5">
+        <span className="text-[9px] font-black text-neutral-500 uppercase tracking-[0.2em]">{label}</span>
+        <span className="text-[8px] font-bold text-neutral-600 uppercase tracking-widest">{unit}</span>
       </div>
     </div>
   );
@@ -442,44 +423,29 @@ const App = () => {
               <p className="text-neutral-500 text-xs mt-3 font-bold tracking-widest uppercase">Position: {activeSpot.lat.toFixed(3)}°N / {activeSpot.lng.toFixed(3)}°E</p>
             </div>
 
-            {/* Sport-väljare & Roses */}
-            <div className="flex flex-col xl:flex-row items-center gap-8 lg:gap-12 bg-neutral-900/40 p-6 lg:p-8 rounded-[3rem] border border-neutral-800/50 backdrop-blur-xl w-full md:w-auto shadow-2xl relative overflow-hidden group/selector">
-              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500/20 to-transparent opacity-0 group-hover/selector:opacity-100 transition-opacity" />
+            {/* Sport-väljare (Header) */}
+            <div className="flex bg-neutral-900/40 p-2 lg:p-3 rounded-[2rem] border border-neutral-800/50 backdrop-blur-xl w-full md:w-auto shadow-2xl relative group/selector">
+              <div className="absolute inset-x-0 -top-[1px] h-[1px] bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent opacity-0 group-hover/selector:opacity-100 transition-opacity" />
 
-              <div className="flex flex-col justify-center">
-                <p className="text-[10px] text-neutral-500 font-black uppercase mb-4 text-center tracking-[0.2em] italic">Välj Aktivitet</p>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { id: 'surf', icon: Waves, label: 'Surf', color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20' },
-                    { id: 'windsurf', icon: Wind, label: 'Wind', color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
-                    { id: 'wingfoil', icon: Zap, label: 'Wing', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
-                    { id: 'kitesurf', icon: Navigation, label: 'Kite', color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20' }
-                  ].map(sport => {
-                    const isActive = (currentSettings.activeActivity || 'surf') === sport.id;
-                    return (
-                      <button
-                        key={sport.id}
-                        onClick={() => handleAdminChange('activeActivity', sport.id)}
-                        className={`flex flex-col items-center justify-center gap-2 p-3 w-20 h-20 rounded-[2rem] transition-all active:scale-95 border ${isActive ? `${sport.bg} ${sport.border} ${sport.color} ring-1 ring-white/10` : 'bg-neutral-800/40 border-white/5 text-neutral-600 hover:text-neutral-400'}`}
-                      >
-                        <sport.icon size={24} />
-                        <span className="text-[8px] font-black uppercase tracking-widest">{sport.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="flex items-center border-l border-white/5 pl-8 lg:pl-10 h-full">
-                {(() => {
-                  const activity = currentSettings.activeActivity || 'surf';
-                  const activityRules = currentSettings.activityRules || { surf: DEFAULT_SCORE_RULES };
-                  const rules = activityRules[activity] || DEFAULT_SCORE_RULES;
-
+              <div className="flex gap-2 w-full justify-around md:justify-start">
+                {[
+                  { id: 'surf', icon: Waves, label: 'Surf', color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20' },
+                  { id: 'windsurf', icon: Wind, label: 'Wind', color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+                  { id: 'wingfoil', icon: Zap, label: 'Wing', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
+                  { id: 'kitesurf', icon: Navigation, label: 'Kite', color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20' }
+                ].map(sport => {
+                  const isActive = (currentSettings.activeActivity || 'surf') === sport.id;
                   return (
-                    <CombinedRose rules={rules} />
+                    <button
+                      key={sport.id}
+                      onClick={() => handleAdminChange('activeActivity', sport.id)}
+                      className={`flex flex-col items-center justify-center gap-1.5 p-2 px-3 md:px-5 rounded-2xl transition-all active:scale-95 border ${isActive ? `${sport.bg} ${sport.border} ${sport.color} ring-1 ring-white/10` : 'bg-neutral-800/40 border-white/5 text-neutral-600 hover:text-neutral-400'}`}
+                    >
+                      <sport.icon size={20} />
+                      <span className="text-[8px] font-black uppercase tracking-widest">{sport.label}</span>
+                    </button>
                   );
-                })()}
+                })}
               </div>
             </div>
           </div>
@@ -499,48 +465,94 @@ const App = () => {
               <p className="text-sm text-neutral-500 max-w-sm font-medium italic">{error}</p>
             </div>
           ) : weatherData ? (
-            <div key={activeSpot.id} className="grid grid-cols-1 xl:grid-cols-3 gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
-
-              {/* Nuvarande Score */}
-              <div className="bg-neutral-900 rounded-[3rem] p-10 lg:p-12 border border-neutral-800/50 flex flex-col items-center justify-center text-center relative overflow-hidden group shadow-2xl">
-                <div className="absolute top-0 right-0 p-4 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity duration-1000 text-cyan-500">
-                  <Zap size={300} />
-                </div>
-
-                {/* Activity Indicator / Switcher Shortcut */}
-                <div className="absolute top-8 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5 bg-white/5 rounded-full border border-white/5 backdrop-blur-sm">
-                  {currentSettings.activeActivity === 'windsurf' ? <Wind size={12} className="text-blue-400" /> :
-                    currentSettings.activeActivity === 'wingfoil' ? <Zap size={12} className="text-emerald-400" /> :
-                      currentSettings.activeActivity === 'kitesurf' ? <Navigation size={12} className="text-rose-400" /> :
-                        <Waves size={12} className="text-cyan-400" />}
-                  <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
-                    {currentSettings.activeActivity || 'Surf'}
-                  </span>
-                </div>
-
-                <div className="relative z-10 w-full pt-6">
-                  <div className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.5em] mb-6">SVAJ Score Just Nu</div>
-                  <div className={`text-[120px] lg:text-[160px] font-black leading-none mb-6 tabular-nums tracking-tighter drop-shadow-2xl transition-colors duration-1000 ${getSurfScore(currentHour) === 0 ? 'text-neutral-700' : 'text-white'}`}>
-                    {getSurfScore(currentHour)}
+            <div key={activeSpot.id} className="animate-in fade-in slide-in-from-bottom-8 duration-700">
+              {/* Score & Combined Rose Section */}
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 items-stretch mb-8">
+                {/* Nuvarande Score */}
+                <div className="bg-neutral-900 rounded-[3rem] p-10 lg:p-12 border border-neutral-800/50 flex flex-col items-center justify-center text-center relative overflow-hidden group shadow-2xl min-h-[400px]">
+                  <div className="absolute top-0 right-0 p-4 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity duration-1000 text-cyan-500">
+                    <Zap size={300} />
                   </div>
-                  <div className="px-8 py-3 bg-black/60 backdrop-blur-md rounded-full inline-block border border-white/10">
-                    <span className="text-xs font-black text-neutral-400 uppercase tracking-[0.2em]">
-                      {SCORE_TEXTS[getSurfScore(currentHour)]}
+
+                  {/* Activity Indicator / Switcher Shortcut */}
+                  <div className="absolute top-8 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5 bg-white/5 rounded-full border border-white/5 backdrop-blur-sm">
+                    {currentSettings.activeActivity === 'windsurf' ? <Wind size={12} className="text-blue-400" /> :
+                      currentSettings.activeActivity === 'wingfoil' ? <Zap size={12} className="text-emerald-400" /> :
+                        currentSettings.activeActivity === 'kitesurf' ? <Navigation size={12} className="text-rose-400" /> :
+                          <Waves size={12} className="text-cyan-400" />}
+                    <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
+                      {currentSettings.activeActivity || 'Surf'}
                     </span>
                   </div>
+
+                  <div className="relative z-10 w-full pt-6">
+                    <div className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.5em] mb-6">SVAJ Score Just Nu</div>
+                    <div className={`text-[120px] lg:text-[160px] font-black leading-none mb-6 tabular-nums tracking-tighter drop-shadow-2xl transition-colors duration-1000 ${getSurfScore(currentHour) === 0 ? 'text-neutral-700' : 'text-white'}`}>
+                      {getSurfScore(currentHour)}
+                    </div>
+                    <div className="px-8 py-3 bg-black/60 backdrop-blur-md rounded-full inline-block border border-white/10">
+                      <span className="text-xs font-black text-neutral-400 uppercase tracking-[0.2em]">
+                        {SCORE_TEXTS[getSurfScore(currentHour)]}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Quick Access Settings */}
+                  <button
+                    onClick={() => setIsAdminModalOpen(true)}
+                    className="absolute bottom-8 right-8 p-3 rounded-full bg-white/5 hover:bg-white/10 text-neutral-600 hover:text-cyan-500 transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    <Settings size={20} />
+                  </button>
                 </div>
 
-                {/* Quick Access Settings */}
-                <button
-                  onClick={() => setIsAdminModalOpen(true)}
-                  className="absolute bottom-8 right-8 p-3 rounded-full bg-white/5 hover:bg-white/10 text-neutral-600 hover:text-cyan-500 transition-all opacity-0 group-hover:opacity-100"
-                >
-                  <Settings size={20} />
-                </button>
+                {/* Spot Info & Condition Roses Card */}
+                <div className="xl:col-span-2 bg-neutral-900 rounded-[3rem] p-8 lg:p-10 border border-neutral-800/50 flex flex-col relative overflow-hidden group shadow-2xl min-h-[400px]">
+                  <div className="absolute -bottom-10 -right-10 opacity-[0.03] text-cyan-500 group-hover:opacity-[0.06] transition-opacity duration-1000">
+                    <Activity size={240} />
+                  </div>
+
+                  <div className="relative z-10 h-full flex flex-col">
+                    <div className="text-center mb-8 animate-in fade-in slide-in-from-top-4 duration-700">
+                      <p className="text-[10px] text-neutral-500 font-black uppercase tracking-[0.4em] italic leading-relaxed mb-4">Om Spotet</p>
+                      <p className="text-sm text-neutral-400 font-medium italic max-w-lg mx-auto leading-relaxed px-4">
+                        {activeSpot.description || "Ingen beskrivning tillgänglig för denna plats ännu."}
+                      </p>
+                    </div>
+
+                    <div className="mt-auto grid grid-cols-2 gap-4 lg:gap-12 items-center justify-items-center animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                      {(() => {
+                        const activity = currentSettings.activeActivity || 'surf';
+                        const activityRules = currentSettings.activityRules || { surf: DEFAULT_SCORE_RULES };
+                        const rules = activityRules[activity] || DEFAULT_SCORE_RULES;
+                        return (
+                          <>
+                            <ConditionRose
+                              rules={rules}
+                              type="wind"
+                              label="Vindstyrka"
+                              unit="Tillåten m/s"
+                              colorClass="text-blue-500"
+                              maxRange={20}
+                            />
+                            <ConditionRose
+                              rules={rules}
+                              type="wave"
+                              label="Vågperiod"
+                              unit="Ideal period s"
+                              colorClass="text-cyan-400"
+                              maxRange={20}
+                            />
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Detaljer Just Nu */}
-              <div className="xl:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
                 <ForecastCard
                   title="Våghöjd"
                   value={`${weatherData.marine.hourly.wave_height[currentHour]}m`}
@@ -572,7 +584,7 @@ const App = () => {
               </div>
 
               {/* 10-dagars översikt */}
-              <div className="col-span-full mt-12 pb-12">
+              <div className="col-span-full pb-12">
                 <div className="flex items-center justify-between mb-8">
                   <h3 className="text-2xl font-black flex items-center gap-4 italic tracking-tight uppercase">
                     <Clock size={28} className="text-cyan-500" />
@@ -588,8 +600,8 @@ const App = () => {
                     const waveHeight = weatherData.marine.hourly.wave_height[hourIdx];
                     const windSpeed = weatherData.weather.hourly.wind_speed_10m[hourIdx];
                     const windDeg = weatherData.weather.hourly.wind_direction_10m[hourIdx];
-                    const temp = weatherData.weather.hourly.temperature_2m[hourIdx];
                     const cloudCover = weatherData.weather.hourly.cloudcover[hourIdx];
+                    const temp = weatherData.weather.hourly.temperature_2m[hourIdx];
 
                     const date = new Date();
                     date.setDate(date.getDate() + i);
@@ -627,24 +639,29 @@ const App = () => {
                               />
                             </div>
                           </div>
-
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[10px] font-black uppercase tracking-tighter">
+                              <span className="text-neutral-500 flex items-center gap-1"><Wind size={10} /> Vind</span>
+                              <span className="text-neutral-200">{windSpeed} m/s</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <div className="w-24 h-1 bg-neutral-800 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-blue-500 transition-all duration-1000"
+                                  style={{ width: `${Math.min(windSpeed * 5, 100)}%` }}
+                                />
+                              </div>
+                              <DirectionArrow deg={windDeg} size={12} className="text-blue-400" />
+                            </div>
+                          </div>
                           <div className="grid grid-cols-2 gap-2 border-t border-white/5 pt-3">
                             <div className="flex flex-col">
-                              <span className="text-[8px] text-neutral-600 font-black uppercase tracking-widest flex items-center gap-1"><Wind size={10} /> Vind</span>
-                              <div className="flex items-center gap-1">
-                                <span className="text-xs font-bold text-neutral-300">{windSpeed}</span>
-                                <DirectionArrow deg={windDeg} size={10} className="text-cyan-500" />
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-end">
                               <span className="text-[8px] text-neutral-600 font-black uppercase tracking-widest flex items-center gap-1">Temp <Thermometer size={10} /></span>
                               <span className="text-xs font-bold text-neutral-300">{temp}°</span>
                             </div>
                           </div>
-
-                          <div className="mt-auto pt-6 border-t border-white/5">
-                            <div className="text-[8px] text-neutral-600 font-black uppercase tracking-widest mb-1 italic">Väderläge</div>
-                            <div className={`text-[10px] font-black uppercase tracking-tighter truncate ${score >= 4 ? 'text-cyan-400' : 'text-neutral-400'}`}>
+                          <div className="mt-auto pt-4 border-t border-white/5 text-center">
+                            <div className={`text-[9px] font-black uppercase tracking-tighter truncate ${score >= 4 ? 'text-cyan-400' : 'text-neutral-500'}`}>
                               {SCORE_TEXTS[score]}
                             </div>
                           </div>
@@ -684,6 +701,7 @@ const App = () => {
           onAdminChange={handleAdminChange}
         />
       )}
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 5px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
