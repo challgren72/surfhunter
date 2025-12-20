@@ -17,25 +17,29 @@ import {
   ArrowUp,
   Maximize2,
   Activity,
-  Settings
+  Settings,
+  Search,
+  Car,
+  Camera,
+  Users,
+  Footprints,
+  Globe,
+  Info,
+  ExternalLink,
+  ChevronDown
 } from 'lucide-react';
+import ObservationCard from './components/ObservationCard';
+import { METOBS_STATIONS, OCOBS_STATIONS } from './data/smhi-stations';
+import { calculateSurfScore } from './utils/score';
+import SensorConfigModal from './components/SensorConfigModal';
+import SpotInfoCard from './components/SpotInfoCard';
+import AdminDashboard from './components/AdminDashboard';
 
 import logo from './assets/images/svaj_logo_gradient_anim.svg';
 
-const SPOTS = [
-  { id: 1, name: "Torö Stenstrand", lat: 58.82, lng: 17.84, region: "Stockholm", description: "Sveriges surfmecka #1. Stenstrand som kräver kraftigt sydligt tryck för att vakna ordentligt." },
-  { id: 2, name: "Apelviken", lat: 57.08, lng: 12.24, region: "Varberg", description: "Västkustens populäraste strand för surf och windsurf med sandbotten och långa vågor." },
-  { id: 3, name: "Kåseberga", lat: 55.38, lng: 14.06, region: "Österlen", description: "En av Sveriges vackraste platser. Kräver rätt vindriktning men kan ge fantastisk surf under rätt förhållanden." },
-  { id: 4, name: "Mölle", lat: 56.28, lng: 12.49, region: "Skåne", description: "Klassisk spot vid Kullaberg. Stenbotten och dramatiska omgivningar." },
-  { id: 5, name: "Salusand", lat: 63.49, lng: 19.26, region: "Ångermanland", description: "Norrlands svar på Hawaii. En fantastisk sandstrand som levererar när Bottenhavet ryter till." },
-  { id: 6, name: "Knäbäckshusen", lat: 55.59, lng: 14.28, region: "Österlen", description: "Magisk sandstrand med tropisk känsla. Kräver ostligt svep för att fungera." },
-  { id: 7, name: "Böda Sand", lat: 57.27, lng: 17.05, region: "Öland", description: "Milsvid sandstrand på Öland som fungerar vid kraftiga ostvindar." },
-  { id: 8, name: "Tylösand", lat: 56.64, lng: 12.73, region: "Halmstad", description: "Klassisk västkuststrand med sandbotten. Bra för alla nivåer vid rätt förhållanden." },
-  { id: 9, name: "Ekeviken", lat: 57.96, lng: 19.23, region: "Fårö", description: "Gotlands pärla. Exponerat läge som tar upp det mesta som norra Östersjön bjuder på." },
-  { id: 10, name: "Smitingen", lat: 62.61, lng: 17.96, region: "Härnösand", description: "Fin sandstrand i vacker natur. Funkar bäst vid vindar från sydost." },
-  { id: 11, name: "Skrea Strand", lat: 56.88, lng: 12.50, region: "Falkenberg", description: "Långgrund sandstrand som är perfekt för nybörjare vid mindre swell." },
-  { id: 12, name: "Träslövsläge", lat: 57.06, lng: 12.27, region: "Varberg", description: "Legendariskt ställe för vind- och kitesurf. Funkar i de flesta vindriktningar." },
-];
+import { DEFAULT_SPOTS } from './data/spots';
+import AISummaryModal from './components/AISummaryModal';
+import { Sparkles } from 'lucide-react'; // Adding Sparkles for the button
 
 const SCORE_TEXTS = {
   0: "INGEN SURF",
@@ -56,13 +60,13 @@ const SCORE_COLORS = {
 };
 
 // Hjälpkomponent för vind- och vågriktning
-const DirectionArrow = ({ deg, size = 16, className = "", strokeWidth = 2 }) => (
-  <ArrowUp
-    size={size}
-    className={className}
-    strokeWidth={strokeWidth}
-    style={{ transform: `rotate(${deg + 180}deg)` }}
-  />
+export const DirectionArrow = ({ deg, size = 24, strokeWidth = 2, className = '' }) => (
+  <div
+    className={`transition-transform duration-700 ease-spring ${className}`}
+    style={{ transform: `rotate(${deg}deg)` }}
+  >
+    <Navigation size={size} strokeWidth={strokeWidth} />
+  </div>
 );
 
 const ConditionRose = ({ rules, type, label, unit, colorClass, maxRange = 20 }) => {
@@ -84,21 +88,17 @@ const ConditionRose = ({ rules, type, label, unit, colorClass, maxRange = 20 }) 
     const valueMaxKey = type === 'wave' ? 'periodMax' : 'windMax';
     const valueMinKey = type === 'wave' ? 'periodMin' : 'windMin';
 
-    // We check all scores to find the strongest match for this direction
-    for (let s = 2; s <= 5; s++) {
-      if (rules[s] && rules[s][typeKey].includes(deg)) {
-        bestScore = s;
-        // For wind, the "relevant" visualization value is often the max allowed
-        // For wave period, it's the period range.
-        maxValue = rules[s][valueMaxKey];
-      }
+    // Only verify against Score 5 (Optimal)
+    if (rules[5] && rules[5][typeKey].includes(deg)) {
+      bestScore = 5;
+      maxValue = rules[5][valueMaxKey];
     }
     return { score: bestScore, value: maxValue };
   };
 
   return (
     <div className="flex flex-col items-center">
-      <div className="relative w-32 h-32 md:w-36 md:h-36">
+      <div className="relative w-16 h-16 md:w-20 md:h-20">
         <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible">
           {/* Background Reference Lines */}
           <circle cx="50" cy="50" r="45" className="fill-white/[0.02] stroke-white/5" strokeWidth="0.5" />
@@ -160,14 +160,100 @@ const ConditionRose = ({ rules, type, label, unit, colorClass, maxRange = 20 }) 
 };
 
 const App = () => {
-  const [activeSpot, setActiveSpot] = useState(SPOTS[0]);
+  const [spots, setSpots] = useState(DEFAULT_SPOTS);
+  const [activeSpot, setActiveSpot] = useState(DEFAULT_SPOTS[0]);
   const [weatherData, setWeatherData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false); // Unified Admin Dashboard
+  const [isSensorModalOpen, setIsSensorModalOpen] = useState(false); // Legacy: keeping for now but will be unused
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false); // Legacy: keeping for now to avoid break, will alias to isAdminOpen logic
   const [selectedDayIndex, setSelectedDayIndex] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview'); // overview, analyze
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [liveData, setLiveData] = useState(null);
   const mainContentRef = useRef(null);
+
+  // FETCH SPOTS FROM API
+  useEffect(() => {
+    const loadSpots = async () => {
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/spots`);
+        if (!res.ok) throw new Error('Failed to fetch spots');
+        const data = await res.json();
+
+        if (data && data.length > 0) {
+          setSpots(data);
+
+          // Extract settings map from spots
+          const settingsMap = {};
+          data.forEach(spot => {
+            if (spot.settings) settingsMap[spot.id] = spot.settings;
+          });
+          setAllSettings(settingsMap);
+
+          // Set active spot (default to first)
+          setActiveSpot(data[0]);
+        } else {
+          // Fallback if DB empty
+          setSpots(DEFAULT_SPOTS);
+          setActiveSpot(DEFAULT_SPOTS[0]);
+        }
+      } catch (err) {
+        console.error("API Error:", err);
+        // Fallback
+        setSpots(DEFAULT_SPOTS);
+        setActiveSpot(DEFAULT_SPOTS[0]);
+      }
+    };
+    loadSpots();
+  }, []);
+
+
+
+  // Update a specific spot's data
+  const handleUpdateSpot = (spotId, newData) => {
+    const updatedSpots = spots.map(s => s.id === spotId ? { ...s, ...newData } : s);
+    setSpots(updatedSpots);
+
+    // Update active spot if it matches
+    if (activeSpot.id === spotId) {
+      setActiveSpot({ ...activeSpot, ...newData });
+    }
+
+    // Persist
+    fetch(`${import.meta.env.VITE_API_BASE_URL}/api/spots/${spotId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newData)
+    }).catch(e => console.error("Persist failed", e));
+  };
+
+  const handleCreateSpot = async (newSpotData) => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/spots`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSpotData)
+      });
+      if (!res.ok) throw new Error('Failed to create spot');
+
+      const createdSpot = await res.json();
+      setSpots(prev => [...prev, createdSpot]);
+
+      // Init settings for new spot
+      setAllSettings(prev => ({
+        ...prev,
+        [createdSpot.id]: createdSpot.settings
+      }));
+
+      return createdSpot;
+    } catch (err) {
+      console.error("Failed to create spot:", err);
+      return null;
+    }
+  };
 
   // Default settings for a spot
   const DEFAULT_SCORE_RULES = {
@@ -193,59 +279,40 @@ const App = () => {
     thresholds: { waveFactor: 2.0, windMin: 4, windMax: 12 }
   };
 
-  // Persisted state for all spots
-  const [allSettings, setAllSettings] = useState(() => {
-    const saved = localStorage.getItem('svaj_spot_settings_v2');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      // Migration: convert scoreRules to activityRules if needed
-      Object.keys(parsed).forEach(spotId => {
-        if (parsed[spotId].scoreRules && !parsed[spotId].activityRules) {
-          const legacyRules = parsed[spotId].scoreRules;
-          // Add period defaults to legacy rules
-          Object.keys(legacyRules).forEach(s => {
-            legacyRules[s].periodMin = legacyRules[s].periodMin || (parseInt(s) + 1);
-            legacyRules[s].periodMax = legacyRules[s].periodMax || 20;
-          });
-          parsed[spotId].activityRules = {
-            surf: legacyRules,
-            windsurf: JSON.parse(JSON.stringify(DEFAULT_SCORE_RULES)),
-            wingfoil: JSON.parse(JSON.stringify(DEFAULT_SCORE_RULES)),
-            kitesurf: JSON.parse(JSON.stringify(DEFAULT_SCORE_RULES))
-          };
-          parsed[spotId].activeActivity = 'surf';
-          delete parsed[spotId].scoreRules;
-        } else if (parsed[spotId].activityRules && !parsed[spotId].activityRules.kitesurf) {
-          // Add kitesurf for users who already have the other activities
-          parsed[spotId].activityRules.kitesurf = JSON.parse(JSON.stringify(DEFAULT_SCORE_RULES));
-        }
-      });
-      return parsed;
-    }
-    return {};
-  });
+  const [allSettings, setAllSettings] = useState({});
 
   // Sync to local storage
-  useEffect(() => {
-    localStorage.setItem('svaj_spot_settings_v2', JSON.stringify(allSettings));
-  }, [allSettings]);
+
 
   // Current spot's settings with fallback to defaults
   const currentSettings = allSettings[activeSpot.id] || DEFAULT_SETTINGS;
 
-  const updateCurrentSettings = (updateFn) => {
+  const updateCurrentSettings = (updateFn, targetSpotId = null) => {
+    const id = targetSpotId || activeSpot.id;
     setAllSettings(prev => ({
       ...prev,
-      [activeSpot.id]: updateFn(prev[activeSpot.id] || { ...DEFAULT_SETTINGS })
+      [id]: updateFn(prev[id] || { ...DEFAULT_SETTINGS })
     }));
   };
 
 
-  const handleAdminChange = (key, value) => {
+  const handleAdminChange = (key, value, targetSpotId = null) => {
+    const id = targetSpotId || activeSpot.id;
+    // Optimistic
     updateCurrentSettings(prev => ({
       ...prev,
       [key]: value
-    }));
+    }), id);
+
+    // Persist
+    const currentSpotSettings = allSettings[id] || DEFAULT_SETTINGS;
+    const newSettings = { ...currentSpotSettings, [key]: value };
+
+    fetch(`${import.meta.env.VITE_API_BASE_URL}/api/spots/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: newSettings })
+    }).catch(e => console.error("Settings persist failed", e));
   };
 
   const handleSpotSelect = (spot) => {
@@ -263,24 +330,19 @@ const App = () => {
       setWeatherData(null);
 
       try {
-        const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${activeSpot.lat}&longitude=${activeSpot.lng}&daily=sunrise,sunset&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,cloudcover&models=best_match&wind_speed_unit=ms&timezone=auto&forecast_days=10`;
-        const marineUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${activeSpot.lat}&longitude=${activeSpot.lng}&hourly=wave_height,wave_direction,wave_period&timezone=auto&forecast_days=10`;
-
-        const [weatherRes, marineRes] = await Promise.all([
-          fetch(weatherUrl).then(res => {
-            if (!res.ok) throw new Error("Väderdata kunde inte hämtas");
-            return res.json();
-          }),
-          fetch(marineUrl).then(res => {
-            if (!res.ok) throw new Error("Marindata kunde inte hämtas");
-            return res.json();
-          })
-        ]);
-
-        setWeatherData({
-          weather: weatherRes,
-          marine: marineRes
+        const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/weather/forecast`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lat: activeSpot.lat, lng: activeSpot.lng })
         });
+
+        if (!res.ok) throw new Error("Väderdata kunde inte hämtas från servern");
+        const data = await res.json();
+        const weatherRes = { data: data.weather }; // Adapter to match previous structure slightly or just use direct
+        // Actually the proxy returns { weather: ..., marine: ... } directly.
+        // Let's adapt the destructuring below:
+
+        setWeatherData(data); // data now has .weather and .marine properties directly
       } catch (err) {
         console.error("Error fetching data:", err);
         setError(err.message);
@@ -293,13 +355,14 @@ const App = () => {
   }, [activeSpot]);
 
   const getSurfScore = (hourIdx) => {
-    if (!weatherData || !weatherData.marine.hourly.wave_height[hourIdx]) return 0;
+    if (!weatherData) return 0;
 
-    const wave = weatherData.marine.hourly.wave_height[hourIdx] || 0;
-    const period = weatherData.marine.hourly.wave_period[hourIdx] || 0;
-    const wind = weatherData.weather.hourly.wind_speed_10m[hourIdx] || 0;
-    const windDir = weatherData.weather.hourly.wind_direction_10m[hourIdx] || 0;
-    const waveDir = weatherData.marine.hourly.wave_direction[hourIdx] || 0;
+    const wave = weatherData?.marine?.hourly?.wave_height?.[hourIdx] || 0;
+    const period = weatherData?.marine?.hourly?.wave_period?.[hourIdx] || 0;
+    const waveDir = weatherData?.marine?.hourly?.wave_direction?.[hourIdx] || 0;
+
+    const wind = weatherData?.weather?.hourly?.wind_speed_10m?.[hourIdx] || 0;
+    const windDir = weatherData?.weather?.hourly?.wind_direction_10m?.[hourIdx] || 0;
 
     const windSector = Math.round(windDir / 45) * 45 % 360;
     const waveSector = Math.round(waveDir / 45) * 45 % 360;
@@ -308,22 +371,32 @@ const App = () => {
     const rules = (currentSettings.activityRules && currentSettings.activityRules[activity])
       || DEFAULT_SETTINGS.activityRules[activity];
 
-    for (let s = 5; s >= 1; s--) {
-      const rule = rules[s];
-      if (!rule) continue;
-
-      const waveMatch = wave >= rule.waveMin && wave <= rule.waveMax;
-      const periodMatch = period >= (rule.periodMin || 0) && period <= (rule.periodMax || 25);
-      const windMatch = wind >= rule.windMin && wind <= rule.windMax;
-      const windDirMatch = rule.windDirs.includes(windSector);
-      const waveDirMatch = rule.waveDirs.includes(waveSector);
-
-      if (waveMatch && periodMatch && windMatch && windDirMatch && waveDirMatch) {
-        return s;
-      }
-    }
+    return calculateSurfScore({
+      wave,
+      period,
+      wind,
+      windDir,
+      waveDir
+    }, rules);
 
     return 0;
+  };
+
+  const getLiveScore = () => {
+    if (!liveData) return 0;
+    const { waveHeight, wavePeriod, windSpeed, windDir, waveDir } = liveData;
+
+    const activity = currentSettings.activeActivity || 'surf';
+    const rules = (currentSettings.activityRules && currentSettings.activityRules[activity])
+      || DEFAULT_SETTINGS.activityRules[activity];
+
+    return calculateSurfScore({
+      wave: waveHeight,
+      period: wavePeriod,
+      wind: windSpeed,
+      windDir,
+      waveDir
+    }, rules);
   };
 
   const currentHour = new Date().getHours();
@@ -368,13 +441,13 @@ const App = () => {
               rel="noopener noreferrer"
               className="text-[10px] text-neutral-500 hover:text-cyan-400 uppercase tracking-[0.2em] font-bold transition-colors block"
             >
-              score.svajsurf.se
+              score by svajsurf.se
             </a>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar bg-neutral-900">
             <p className="text-[10px] text-neutral-500 font-black uppercase mb-3 ml-2 tracking-widest">Välj Lineup</p>
-            {SPOTS.map(spot => (
+            {spots.filter(s => s.isActive !== false).map(spot => (
               <button
                 key={spot.id}
                 onClick={() => handleSpotSelect(spot)}
@@ -414,7 +487,7 @@ const App = () => {
               <div className="flex items-center gap-4">
                 <h2 className="text-4xl md:text-6xl font-black tracking-tighter leading-none uppercase">{activeSpot.name}</h2>
                 <button
-                  onClick={() => setIsAdminModalOpen(true)}
+                  onClick={() => setIsAdminOpen(true)}
                   className="p-2 rounded-full bg-neutral-900/50 border border-white/5 text-neutral-500 hover:text-cyan-400 hover:bg-neutral-800 transition-all active:scale-90"
                 >
                   <Settings size={20} />
@@ -466,61 +539,73 @@ const App = () => {
             </div>
           ) : weatherData ? (
             <div key={activeSpot.id} className="animate-in fade-in slide-in-from-bottom-8 duration-700">
+
+              {/* Partial Data Warning */}
+              {weatherData?.warnings?.length > 0 && (
+                <div className="mb-6 mx-auto max-w-2xl bg-amber-500/10 border border-amber-500/20 text-amber-200 px-4 py-3 rounded-xl flex items-center justify-center gap-3 animate-in fade-in slide-in-from-top-4">
+                  <AlertCircle size={20} className="text-amber-500" />
+                  <span className="text-xs font-bold uppercase tracking-widest">
+                    Varning: {weatherData.warnings.join(', ')}
+                  </span>
+                </div>
+              )}
+
               {/* Score & Combined Rose Section */}
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 items-stretch mb-8">
                 {/* Nuvarande Score */}
-                <div className="bg-neutral-900 rounded-[3rem] p-10 lg:p-12 border border-neutral-800/50 flex flex-col items-center justify-center text-center relative overflow-hidden group shadow-2xl min-h-[400px]">
+                <div className="bg-neutral-900 rounded-[2.5rem] p-8 lg:p-10 border border-neutral-800/50 flex flex-col items-center justify-center text-center relative overflow-hidden group shadow-2xl min-h-[320px]">
                   <div className="absolute top-0 right-0 p-4 opacity-[0.02] group-hover:opacity-[0.05] transition-opacity duration-1000 text-cyan-500">
-                    <Zap size={300} />
+                    <Zap size={240} />
                   </div>
 
                   {/* Activity Indicator / Switcher Shortcut */}
-                  <div className="absolute top-8 left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5 bg-white/5 rounded-full border border-white/5 backdrop-blur-sm">
-                    {currentSettings.activeActivity === 'windsurf' ? <Wind size={12} className="text-blue-400" /> :
-                      currentSettings.activeActivity === 'wingfoil' ? <Zap size={12} className="text-emerald-400" /> :
-                        currentSettings.activeActivity === 'kitesurf' ? <Navigation size={12} className="text-rose-400" /> :
-                          <Waves size={12} className="text-cyan-400" />}
-                    <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
+                  <div className="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/5 backdrop-blur-sm">
+                    {currentSettings.activeActivity === 'windsurf' ? <Wind size={10} className="text-blue-400" /> :
+                      currentSettings.activeActivity === 'wingfoil' ? <Zap size={10} className="text-emerald-400" /> :
+                        currentSettings.activeActivity === 'kitesurf' ? <Navigation size={10} className="text-rose-400" /> :
+                          <Waves size={10} className="text-cyan-400" />}
+                    <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">
                       {currentSettings.activeActivity || 'Surf'}
                     </span>
                   </div>
 
-                  <div className="relative z-10 w-full pt-6">
-                    <div className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.5em] mb-6">SVAJ Score Just Nu</div>
-                    <div className={`text-[120px] lg:text-[160px] font-black leading-none mb-6 tabular-nums tracking-tighter drop-shadow-2xl transition-colors duration-1000 ${getSurfScore(currentHour) === 0 ? 'text-neutral-700' : 'text-white'}`}>
-                      {getSurfScore(currentHour)}
+                  {/* Gemini AI Button */}
+                  <button
+                    onClick={() => setIsAIModalOpen(true)}
+                    className="absolute top-6 left-6 p-2 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:text-white hover:bg-indigo-500 hover:scale-110 transition-all z-20 group/ai"
+                  >
+                    <Sparkles size={16} />
+                    <span className="absolute left-full ml-3 px-2 py-1 bg-neutral-900 border border-white/10 rounded-lg text-[10px] uppercase font-bold text-white whitespace-nowrap opacity-0 group-hover/ai:opacity-100 transition-opacity pointer-events-none">
+                      AI Analys
+                    </span>
+                  </button>
+
+                  <div className="relative z-10 w-full pt-4">
+                    <div className="text-[9px] font-black text-cyan-500 uppercase tracking-[0.5em] mb-4">SVAJ Score Just Nu</div>
+                    <div className={`text-[100px] lg:text-[130px] font-black leading-none mb-4 tabular-nums tracking-tighter drop-shadow-2xl transition-colors duration-1000 ${getSurfScore(currentHour) === 0 ? 'text-neutral-700' : 'text-white'} flex items-baseline justify-center gap-4`}>
+                      <div className="flex flex-col items-center">
+                        <span className="leading-none">{getSurfScore(currentHour)}</span>
+                        <span className={`text-[10px] font-black uppercase tracking-widest -mt-2 ${getSurfScore(currentHour) === 0 ? 'text-neutral-600' : 'text-white/40'}`}>Forecast</span>
+                      </div>
+                      {getLiveScore() > 0 && (
+                        <div className="flex flex-col items-center">
+                          <span className="text-[40px] lg:text-[50px] font-black text-emerald-500 tracking-tighter animate-in fade-in slide-in-from-bottom-2 leading-none">
+                            {getLiveScore()}
+                          </span>
+                          <span className="text-[10px] font-black text-emerald-500/70 uppercase tracking-widest mt-1">Live</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="px-8 py-3 bg-black/60 backdrop-blur-md rounded-full inline-block border border-white/10">
-                      <span className="text-xs font-black text-neutral-400 uppercase tracking-[0.2em]">
+                    <div className="px-6 py-2 bg-black/60 backdrop-blur-md rounded-full inline-block border border-white/10">
+                      <span className="text-[10px] font-black text-neutral-400 uppercase tracking-[0.2em]">
                         {SCORE_TEXTS[getSurfScore(currentHour)]}
                       </span>
                     </div>
-                  </div>
 
-                  {/* Quick Access Settings */}
-                  <button
-                    onClick={() => setIsAdminModalOpen(true)}
-                    className="absolute bottom-8 right-8 p-3 rounded-full bg-white/5 hover:bg-white/10 text-neutral-600 hover:text-cyan-500 transition-all opacity-0 group-hover:opacity-100"
-                  >
-                    <Settings size={20} />
-                  </button>
-                </div>
 
-                {/* Spot Info & Condition Roses Card */}
-                <div className="xl:col-span-2 bg-neutral-900 rounded-[3rem] p-8 lg:p-10 border border-neutral-800/50 flex flex-col relative overflow-hidden group shadow-2xl min-h-[400px]">
-                  <div className="absolute -bottom-10 -right-10 opacity-[0.03] text-cyan-500 group-hover:opacity-[0.06] transition-opacity duration-1000">
-                    <Activity size={240} />
-                  </div>
 
-                  <div className="relative z-10 h-full flex flex-col">
-                    <div className="text-center mb-8 animate-in fade-in slide-in-from-top-4 duration-700">
-                      <p className="text-[10px] text-neutral-500 font-black uppercase tracking-[0.4em] italic leading-relaxed mb-4">Om Spotet</p>
-                      <p className="text-sm text-neutral-400 font-medium italic max-w-lg mx-auto leading-relaxed px-4">
-                        {activeSpot.description || "Ingen beskrivning tillgänglig för denna plats ännu."}
-                      </p>
-                    </div>
-
-                    <div className="mt-auto grid grid-cols-2 gap-4 lg:gap-12 items-center justify-items-center animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                    {/* Condition Roses */}
+                    <div className="flex flex-row gap-4 justify-center mt-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
                       {(() => {
                         const activity = currentSettings.activeActivity || 'surf';
                         const activityRules = currentSettings.activityRules || { surf: DEFAULT_SCORE_RULES };
@@ -530,16 +615,16 @@ const App = () => {
                             <ConditionRose
                               rules={rules}
                               type="wind"
-                              label="Vindstyrka"
-                              unit="Tillåten m/s"
+                              label="Optimal Vind"
+                              unit="m/s"
                               colorClass="text-blue-500"
                               maxRange={20}
                             />
                             <ConditionRose
                               rules={rules}
                               type="wave"
-                              label="Vågperiod"
-                              unit="Ideal period s"
+                              label="Optimal Våg"
+                              unit="s"
                               colorClass="text-cyan-400"
                               maxRange={20}
                             />
@@ -548,40 +633,102 @@ const App = () => {
                       })()}
                     </div>
                   </div>
+
+                  {/* Quick Access Settings */}
+                  <button
+                    onClick={() => setIsAdminOpen(true)}
+                    className="absolute bottom-6 right-6 p-2 rounded-full bg-white/5 hover:bg-white/10 text-neutral-600 hover:text-cyan-500 transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    <Settings size={18} />
+                  </button>
+                </div>
+
+                {/* Right Sidebar Stack */}
+                <div className="xl:col-span-2 flex flex-col gap-4">
+
+                  {/* 1. Live Observations - Spans Top */}
+                  {(() => {
+                    const activeStations = currentSettings.observationStations || {};
+
+                    return (
+                      <ObservationCard
+                        stations={activeStations}
+                        stationNames={{
+                          wind: METOBS_STATIONS.find(s => s.id == activeStations.wind)?.name,
+                          wave: OCOBS_STATIONS.find(s => s.id == activeStations.wave)?.name,
+                          windSecondary: METOBS_STATIONS.find(s => s.id == activeStations.windSecondary)?.name,
+                          waveSecondary: OCOBS_STATIONS.find(s => s.id == activeStations.waveSecondary)?.name
+                        }}
+                        onDataLoad={setLiveData}
+                      />
+                    );
+                  })()}
+
+                  {/* 2. Row of Forecast Cards */}
+                  <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                    {/* Våghöjd */}
+                    <div className="min-w-0 bg-neutral-900 p-3 lg:p-4 rounded-3xl border border-neutral-800/50 flex flex-col justify-between hover:bg-neutral-800/60 transition-all group shadow-xl h-full relative overflow-hidden group/card">
+                      <div className="absolute top-0 right-0 p-3 opacity-10 text-cyan-500 group-hover/card:opacity-20 transition-opacity">
+                        <Waves size={40} />
+                      </div>
+                      <div className="relative z-10 flex flex-col h-full justify-between gap-4">
+                        <div className="flex justify-between items-start">
+                          <span className="text-[9px] text-neutral-500 font-black uppercase tracking-[0.2em]">Vågor</span>
+                          <div className="flex flex-col items-center">
+                            <DirectionArrow deg={weatherData?.marine?.hourly?.wave_direction?.[currentHour] || 0} size={14} className="text-cyan-500" />
+                            <span className="text-[8px] font-bold text-neutral-600">{Math.round(weatherData?.marine?.hourly?.wave_direction?.[currentHour] || 0)}°</span>
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-xl lg:text-2xl font-black text-white tracking-tighter block">{weatherData?.marine?.hourly?.wave_height?.[currentHour] || '-'}m</span>
+                          <span className="text-[10px] font-bold text-neutral-500 tracking-wide">{weatherData?.marine?.hourly?.wave_period?.[currentHour] || '-'}s</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Vind */}
+                    <div className="min-w-0 bg-neutral-900 p-3 lg:p-4 rounded-3xl border border-neutral-800/50 flex flex-col justify-between hover:bg-neutral-800/60 transition-all group shadow-xl h-full relative overflow-hidden group/card">
+                      <div className="absolute top-0 right-0 p-3 opacity-10 text-blue-500 group-hover/card:opacity-20 transition-opacity">
+                        <Wind size={40} />
+                      </div>
+                      <div className="relative z-10 flex flex-col h-full justify-between gap-4">
+                        <div className="flex justify-between items-start">
+                          <span className="text-[9px] text-neutral-500 font-black uppercase tracking-[0.2em]">Vind</span>
+                          <div className="flex flex-col items-center">
+                            <DirectionArrow deg={weatherData.weather.hourly.wind_direction_10m[currentHour]} size={14} className="text-blue-500" />
+                            <span className="text-[8px] font-bold text-neutral-600">{Math.round(weatherData.weather.hourly.wind_direction_10m[currentHour])}°</span>
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-xl lg:text-2xl font-black text-white tracking-tighter block">{Math.round(weatherData.weather.hourly.wind_speed_10m[currentHour])} <span className="text-xs opacity-50">m/s</span></span>
+                          <span className="text-[10px] font-bold text-neutral-500 tracking-wide">({Math.round(weatherData.weather.hourly.wind_gusts_10m[currentHour])})</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Luft & Moln (Compact Version) */}
+                    <div className="min-w-0 bg-neutral-900 p-4 rounded-3xl border border-neutral-800/50 flex flex-col justify-between hover:bg-neutral-800/60 transition-all group shadow-xl h-full relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-3 opacity-10">
+                        <Cloud size={40} />
+                      </div>
+                      <div className="relative z-10 flex flex-col h-full justify-between">
+                        <div>
+                          <span className="text-[9px] text-neutral-500 font-black uppercase tracking-[0.2em] block mb-1">Luft</span>
+                          <span className="text-xl font-black text-white tracking-tighter">{Math.round(weatherData.weather.hourly.temperature_2m[currentHour])}°</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-neutral-500 font-black uppercase tracking-[0.2em] block mb-1">Moln</span>
+                          <span className="text-xl font-black text-white tracking-tighter">{weatherData.weather.hourly.cloudcover[currentHour]}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
 
-              {/* Detaljer Just Nu */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
-                <ForecastCard
-                  title="Våghöjd"
-                  value={`${weatherData.marine.hourly.wave_height[currentHour]}m`}
-                  sub={`${weatherData.marine.hourly.wave_period[currentHour]}s period`}
-                  icon={Waves}
-                  color="text-cyan-400"
-                />
-                <ForecastCard
-                  title="Vind"
-                  value={`${weatherData.weather.hourly.wind_speed_10m[currentHour]} m/s`}
-                  sub={`Byar: ${weatherData.weather.hourly.wind_gusts_10m[currentHour]} m/s`}
-                  icon={Wind}
-                  color="text-blue-400"
-                />
-                <ForecastCard
-                  title="Luft"
-                  value={`${weatherData.weather.hourly.temperature_2m[currentHour]}°C`}
-                  sub="Cold water gear"
-                  icon={Thermometer}
-                  color="text-orange-400"
-                />
-                <ForecastCard
-                  title="Moln"
-                  value={`${weatherData.weather.hourly.cloudcover[currentHour]}%`}
-                  sub={weatherData.weather.hourly.cloudcover[currentHour] < 30 ? 'Gnistrande sol' : 'Helt mulet'}
-                  icon={Cloud}
-                  color="text-neutral-400"
-                />
-              </div>
+              {/* Om Spotet - Full Width */}
+              <SpotInfoCard spot={activeSpot} activeActivity={currentSettings.activeActivity || 'surf'} />
 
               {/* 10-dagars översikt */}
               <div className="col-span-full pb-12">
@@ -595,7 +742,25 @@ const App = () => {
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-5">
                   {Array.from({ length: 10 }).map((_, i) => {
-                    const hourIdx = i * 24 + 14;
+                    // Find the hour with the HIGHEST score for this day
+                    let bestHourIdx = i * 24 + 12; // Default to noon as fallback
+                    let maxScore = -1;
+
+                    // Iterate 06:00 to 22:00 to find best daytime conditions, or full day?
+                    // Let's do full 24h to be safe, or maybe 04-22 to avoid dark night surfing?
+                    // User said "highest forecast value", implying score.
+                    for (let h = 4; h <= 21; h++) {
+                      const currentIdx = i * 24 + h;
+                      if (currentIdx < weatherData.weather.hourly.wind_speed_10m.length) {
+                        const s = getSurfScore(currentIdx);
+                        if (s > maxScore) {
+                          maxScore = s;
+                          bestHourIdx = currentIdx;
+                        }
+                      }
+                    }
+
+                    const hourIdx = bestHourIdx;
                     const score = getSurfScore(hourIdx);
                     const waveHeight = weatherData.marine.hourly.wave_height[hourIdx];
                     const windSpeed = weatherData.weather.hourly.wind_speed_10m[hourIdx];
@@ -679,26 +844,46 @@ const App = () => {
             Svaj
           </div>
         </main>
-      </div>
+      </div >
 
       {/* DETALJERAD DAG-MODAL */}
-      {selectedDayIndex !== null && weatherData && (
-        <DayDetailModal
-          dayIndex={selectedDayIndex}
+      {
+        selectedDayIndex !== null && weatherData && (
+          <DayDetailModal
+            dayIndex={selectedDayIndex}
+            weatherData={weatherData}
+            onClose={() => setSelectedDayIndex(null)}
+            setSelectedDayIndex={setSelectedDayIndex}
+            getSurfScore={getSurfScore}
+            activeActivity={currentSettings.activeActivity || 'surf'}
+            onActivityChange={(id) => handleAdminChange('activeActivity', id)}
+          />
+        )
+      }
+
+      {/* Unified Admin Dashboard */}
+      {isAdminOpen && (
+        <AdminDashboard
+          activeSpot={activeSpot}
+          allSettings={allSettings}
+          defaultSettings={DEFAULT_SETTINGS}
+          onClose={() => setIsAdminOpen(false)}
+          onAdminChange={handleAdminChange}
+          onUpdateSpot={handleUpdateSpot}
+          onCreateSpot={handleCreateSpot}
+          spots={spots}
           weatherData={weatherData}
-          onClose={() => setSelectedDayIndex(null)}
-          setSelectedDayIndex={setSelectedDayIndex}
-          getSurfScore={getSurfScore}
+          currentHour={new Date().getHours()}
         />
       )}
 
-      {/* Admin Modal */}
-      {isAdminModalOpen && (
-        <AdminModal
+      {/* AI Analysis Modal */}
+      {isAIModalOpen && (
+        <AISummaryModal
           activeSpot={activeSpot}
-          currentSettings={allSettings[activeSpot.id] || DEFAULT_SETTINGS}
-          onClose={() => setIsAdminModalOpen(false)}
-          onAdminChange={handleAdminChange}
+          weatherData={weatherData}
+          currentRules={allSettings[activeSpot.id]?.activityRules?.[allSettings[activeSpot.id]?.activeActivity || 'surf']}
+          onClose={() => setIsAIModalOpen(false)}
         />
       )}
 
@@ -712,12 +897,12 @@ const App = () => {
         .animate-in { animation: fade-in 0.6s ease-out; }
         .animate-slide-up { animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
       `}</style>
-    </div>
+    </div >
   );
 };
 
 // MODAL-KOMPONENT FÖR DETALJERAD GRAF
-const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore, setSelectedDayIndex }) => {
+const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore, setSelectedDayIndex, activeActivity, onActivityChange }) => {
   const [hoverIndex, setHoverIndex] = useState(null);
   const dayStartIdx = dayIndex * 24;
   const hours = Array.from({ length: 24 }).map((_, h) => dayStartIdx + h);
@@ -759,8 +944,8 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore, setSelec
   };
 
   // Beräkna maxvärden för skalning av Y-axel
-  const maxWave = Math.max(...hours.map(h => weatherData.marine.hourly.wave_height[h] || 0), 1);
-  const maxPeriod = Math.max(...hours.map(h => weatherData.marine.hourly.wave_period[h] || 0), 1);
+  const maxWave = Math.max(...hours.map(h => weatherData?.marine?.hourly?.wave_height?.[h] || 0), 1);
+  const maxPeriod = Math.max(...hours.map(h => weatherData?.marine?.hourly?.wave_period?.[h] || 0), 1);
   const maxWind = Math.max(...hours.map(h => weatherData.weather.hourly.wind_gusts_10m[h] || 0), 10);
   const temps = hours.map(h => weatherData.weather.hourly.temperature_2m[h]);
   const minTemp = Math.min(...temps);
@@ -803,6 +988,8 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore, setSelec
                 <span className="text-neutral-500 text-xs font-bold uppercase tracking-widest italic">Detaljerad Tim-analys</span>
               </div>
             </div>
+
+            {/* Sport Selector Removed from here */}
             <button
               onClick={goToNextDay}
               disabled={dayIndex === 9}
@@ -811,12 +998,38 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore, setSelec
               <ChevronRight size={24} />
             </button>
           </div>
-          <button
-            onClick={onClose}
-            className="w-12 h-12 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all text-white border border-white/5 active:scale-90"
-          >
-            <X size={24} />
-          </button>
+          <div className="flex items-center gap-4">
+            {/* Sport Selector */}
+            <div className="hidden md:flex bg-neutral-800/50 p-1.5 rounded-xl border border-white/5 gap-1">
+              {[
+                { id: 'surf', icon: Waves, label: 'Surf', color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
+                { id: 'windsurf', icon: Wind, label: 'Wind', color: 'text-blue-400', bg: 'bg-blue-500/10' },
+                { id: 'wingfoil', icon: Zap, label: 'Wing', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+                { id: 'kitesurf', icon: Navigation, label: 'Kite', color: 'text-rose-400', bg: 'bg-rose-500/10' }
+              ].map(sport => (
+                <button
+                  key={sport.id}
+                  onClick={() => onActivityChange(sport.id)}
+                  className={`p-2 rounded-lg transition-all flex items-center gap-2 ${activeActivity === sport.id
+                    ? `${sport.bg} ${sport.color} ring-1 ring-white/10 shadow-lg`
+                    : 'text-neutral-500 hover:text-neutral-300 hover:bg-white/5'}`}
+                  title={sport.label}
+                >
+                  <sport.icon size={16} />
+                  {activeActivity === sport.id && (
+                    <span className="text-[9px] font-black uppercase tracking-widest leading-none hidden md:inline-block">{sport.label}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={onClose}
+              className="w-12 h-12 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all text-white border border-white/5 active:scale-90"
+            >
+              <X size={24} />
+            </button>
+          </div>
         </div>
 
         {/* Innehåll */}
@@ -920,10 +1133,10 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore, setSelec
                 <path d={getPath(weatherData.weather.hourly.wind_speed_10m, maxWind)} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" />
 
                 {/* Vågperiod (Streckad) */}
-                <path d={getPath(weatherData.marine.hourly.wave_period, maxPeriod)} fill="none" stroke="#06b6d4" strokeWidth="2" strokeDasharray="6,4" strokeOpacity="0.4" />
+                <path d={getPath(weatherData?.marine?.hourly?.wave_period || [], maxPeriod)} fill="none" stroke="#06b6d4" strokeWidth="2" strokeDasharray="6,4" strokeOpacity="0.4" />
 
                 {/* Vågor (Heldragen) */}
-                <path d={getPath(weatherData.marine.hourly.wave_height, maxWave)} fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={getPath(weatherData?.marine?.hourly?.wave_height || [], maxWave)} fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 
                 {/* Temperatur (Kontrastfärg heldragen) */}
                 <path d={getPath(weatherData.weather.hourly.temperature_2m, maxTemp, minTemp)} fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" />
@@ -978,7 +1191,7 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore, setSelec
 
                       <text x="15" y="70" fill="#a3a3a3" fontSize="10" fontWeight="900" className="uppercase opacity-60">Vågor</text>
                       <text x="185" y="70" textAnchor="end" fill="#fff" fontSize="10" fontWeight="900">
-                        {weatherData.marine.hourly.wave_height[dayStartIdx + hoverIndex]}m / {weatherData.marine.hourly.wave_period[dayStartIdx + hoverIndex]}s / {weatherData.marine.hourly.wave_direction[dayStartIdx + hoverIndex]}°
+                        {weatherData?.marine?.hourly?.wave_height?.[dayStartIdx + hoverIndex] || '-'}m / {weatherData?.marine?.hourly?.wave_period?.[dayStartIdx + hoverIndex] || '-'}s / {weatherData?.marine?.hourly?.wave_direction?.[dayStartIdx + hoverIndex] || '-'}°
                       </text>
 
                       <text x="15" y="90" fill="#3b82f6" fontSize="10" fontWeight="900" className="uppercase opacity-60">Vind</text>
@@ -1017,9 +1230,9 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore, setSelec
 
             {hours.map((h, idx) => {
               const score = getSurfScore(h);
-              const waveH = weatherData.marine.hourly.wave_height[h];
-              const waveD = weatherData.marine.hourly.wave_direction[h];
-              const waveP = weatherData.marine.hourly.wave_period[h];
+              const waveH = weatherData?.marine?.hourly?.wave_height?.[h] || '-';
+              const waveD = weatherData?.marine?.hourly?.wave_direction?.[h] || 0;
+              const waveP = weatherData?.marine?.hourly?.wave_period?.[h] || '-';
               const windS = weatherData.weather.hourly.wind_speed_10m[h];
               const windG = weatherData.weather.hourly.wind_gusts_10m[h];
               const windD = weatherData.weather.hourly.wind_direction_10m[h];
@@ -1058,193 +1271,30 @@ const DayDetailModal = ({ dayIndex, weatherData, onClose, getSurfScore, setSelec
   );
 };
 
-const ForecastCard = ({ title, value, sub, icon: Icon, color }) => (
-  <div className="bg-neutral-900 p-6 lg:p-8 rounded-[2.5rem] border border-neutral-800/50 flex flex-col justify-between hover:bg-neutral-800/60 transition-all group shadow-xl">
-    <div className={`w-12 h-12 lg:w-14 lg:h-14 rounded-2xl bg-black flex items-center justify-center mb-6 lg:mb-8 shadow-inner border border-white/5 ${color}`}>
-      <Icon size={24} className="group-hover:scale-110 transition-transform duration-500" />
+const ForecastCard = ({ title, value, sub, icon: Icon, color, direction }) => (
+  <div className="bg-neutral-900 p-5 lg:p-6 rounded-3xl border border-neutral-800/50 flex flex-col justify-between hover:bg-neutral-800/60 transition-all group shadow-xl h-full min-h-[160px]">
+    <div className="flex justify-between items-start mb-4">
+      <div className={`w-10 h-10 lg:w-12 lg:h-12 rounded-xl bg-black flex items-center justify-center shadow-inner border border-white/5 ${color}`}>
+        <Icon size={20} className="group-hover:scale-110 transition-transform duration-500" />
+      </div>
+      {direction !== undefined && (
+        <div className="flex flex-col items-center gap-1">
+          <div className={`flex items-center justify-center w-10 h-10 rounded-full bg-white/5 border border-white/5 ${color}`}>
+            <DirectionArrow deg={direction} size={18} />
+          </div>
+          <div className="text-[9px] font-black text-neutral-500 tabular-nums tracking-tighter">{Math.round(direction)}°</div>
+        </div>
+      )}
     </div>
     <div>
-      <div className="text-[10px] text-neutral-500 font-black uppercase tracking-[0.2em] mb-2">{title}</div>
-      <div className="text-2xl lg:text-3xl font-black tabular-nums tracking-tighter text-white uppercase">{value}</div>
-      <div className="text-[10px] text-neutral-600 mt-3 font-black uppercase tracking-tighter leading-tight opacity-80 italic">{sub}</div>
+      <div className="text-[9px] text-neutral-500 font-black uppercase tracking-[0.2em] mb-1">{title}</div>
+      <div className="text-xl lg:text-2xl font-black tabular-nums tracking-tighter text-white uppercase">{value}</div>
+      <div className="text-[9px] text-neutral-600 mt-2 font-black uppercase tracking-tighter leading-tight opacity-80 italic">{sub}</div>
     </div>
   </div>
 );
 // ADMIN-MODAL FÖR ATT JUSTERA REGELVERK (1-5)
-const AdminModal = ({ activeSpot, currentSettings, onClose, onAdminChange }) => {
-  const [activeTab, setActiveTab] = useState(5);
+// End of App component
 
-  const activeActivity = currentSettings.activeActivity || 'surf';
-  const activityRules = currentSettings.activityRules || {
-    surf: DEFAULT_SCORE_RULES,
-    windsurf: DEFAULT_SCORE_RULES,
-    wingfoil: DEFAULT_SCORE_RULES
-  };
-
-  const rules = activityRules[activeActivity];
-  const currentRule = rules[activeTab];
-
-  const updateRule = (key, value) => {
-    onAdminChange('activityRules', {
-      ...activityRules,
-      [activeActivity]: {
-        ...rules,
-        [activeTab]: { ...currentRule, [key]: value }
-      }
-    });
-  };
-
-  const toggleDir = (type, deg) => {
-    const list = currentRule[type];
-    const newList = list.includes(deg) ? list.filter(d => d !== deg) : [...list, deg];
-    updateRule(type, newList);
-  };
-
-  const DEGREES = [0, 45, 90, 135, 180, 225, 270, 315];
-
-  return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl animate-in">
-      <div className="bg-neutral-900 w-full max-w-2xl rounded-[3rem] border border-white/10 overflow-hidden flex flex-col animate-slide-up shadow-2xl max-h-[90vh]">
-        <div className="p-6 md:p-8 border-b border-white/5 flex items-center justify-between bg-neutral-900/50">
-          <div>
-            <h3 className="text-2xl font-black uppercase italic tracking-tighter">Score Configurator</h3>
-            <p className="text-cyan-500 text-[10px] font-black uppercase tracking-widest mt-1">{activeSpot.name}</p>
-          </div>
-          <button onClick={onClose} className="p-3 rounded-full bg-white/5 hover:bg-white/10 transition-all text-white active:scale-90">
-            <X size={20} />
-          </button>
-        </div>
-
-        {/* Activity Selection */}
-        <div className="flex bg-black/40 p-2 gap-2 border-b border-white/5">
-          {[
-            { id: 'surf', icon: Waves, label: 'Surf' },
-            { id: 'windsurf', icon: Wind, label: 'Windsurf' },
-            { id: 'wingfoil', icon: Zap, label: 'Wingfoil' },
-            { id: 'kitesurf', icon: Navigation, label: 'Kite' }
-          ].map(sport => (
-            <button
-              key={sport.id}
-              onClick={() => onAdminChange('activeActivity', sport.id)}
-              className={`flex-1 py-3 rounded-2xl flex items-center justify-center gap-2 transition-all ${activeActivity === sport.id ? 'bg-white/10 text-cyan-400 font-black ring-1 ring-white/20' : 'text-neutral-500 hover:text-neutral-300 font-bold'}`}
-            >
-              <sport.icon size={16} />
-              <span className="uppercase tracking-[0.1em] text-[10px]">{sport.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Tabs */}
-        <div className="flex bg-black/20 p-2 gap-2">
-          {[1, 2, 3, 4, 5].map(s => (
-            <button
-              key={s}
-              onClick={() => setActiveTab(s)}
-              className={`flex-1 py-3 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all ${activeTab === s ? (s >= 4 ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' : 'bg-neutral-700 text-white') : 'text-neutral-500 hover:text-neutral-300'}`}
-            >
-              Score {s}
-            </button>
-          ))}
-        </div>
-
-        <div className="p-6 md:p-8 space-y-8 overflow-y-auto custom-scrollbar">
-          {/* Waves */}
-          <div className="space-y-4">
-            <div className="flex justify-between items-center text-xs font-black uppercase tracking-widest text-neutral-400">
-              <span>Våghöjd (Min - Max)</span>
-              <span className="text-cyan-400">{currentRule.waveMin.toFixed(1)} - {currentRule.waveMax.toFixed(1)} m</span>
-            </div>
-            <div className="flex gap-4 items-center">
-              <div className="flex-1 space-y-2">
-                <span className="text-[8px] text-neutral-600 font-bold uppercase">Min height</span>
-                <input type="range" min="0" max="4" step="0.1" value={currentRule.waveMin} onChange={(e) => updateRule('waveMin', parseFloat(e.target.value))} className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer accent-cyan-500" />
-              </div>
-              <div className="flex-1 space-y-2">
-                <span className="text-[8px] text-neutral-600 font-bold uppercase">Max height</span>
-                <input type="range" min="0" max="6" step="0.1" value={currentRule.waveMax} onChange={(e) => updateRule('waveMax', parseFloat(e.target.value))} className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer accent-cyan-500" />
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center text-xs font-black uppercase tracking-widest text-neutral-400 mt-6">
-              <span>Vågperiod (Min - Max)</span>
-              <span className="text-emerald-400">{(currentRule.periodMin || 0)} - {(currentRule.periodMax || 20)} s</span>
-            </div>
-            <div className="flex gap-4 items-center">
-              <div className="flex-1 space-y-2">
-                <span className="text-[8px] text-neutral-600 font-bold uppercase">Min period</span>
-                <input type="range" min="0" max="15" step="1" value={currentRule.periodMin || 0} onChange={(e) => updateRule('periodMin', parseInt(e.target.value))} className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer accent-emerald-500" />
-              </div>
-              <div className="flex-1 space-y-2">
-                <span className="text-[8px] text-neutral-600 font-bold uppercase">Max period</span>
-                <input type="range" min="0" max="25" step="1" value={currentRule.periodMax || 20} onChange={(e) => updateRule('periodMax', parseInt(e.target.value))} className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer accent-emerald-500" />
-              </div>
-            </div>
-
-            <div className="space-y-3 pt-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-neutral-600 block">Tillåtna Våg-riktningar</span>
-              <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
-                {DEGREES.map(deg => (
-                  <button
-                    key={deg}
-                    onClick={() => toggleDir('waveDirs', deg)}
-                    className={`p-2 rounded-xl border transition-all flex flex-col items-center gap-1 ${currentRule.waveDirs.includes(deg) ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-400' : 'bg-neutral-800/50 border-white/5 text-neutral-600'}`}
-                  >
-                    <DirectionArrow deg={deg} size={14} className={currentRule.waveDirs.includes(deg) ? 'text-cyan-400' : 'text-neutral-700'} />
-                    <span className="text-[8px] font-bold uppercase">{deg}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="h-px bg-white/5" />
-
-          {/* Wind */}
-          <div className="space-y-4">
-            <div className="flex justify-between items-center text-xs font-black uppercase tracking-widest text-neutral-400">
-              <span>Vindstyrka (Min - Max)</span>
-              <span className="text-blue-400">{currentRule.windMin} - {currentRule.windMax} m/s</span>
-            </div>
-            <div className="flex gap-4 items-center">
-              <div className="flex-1 space-y-2">
-                <span className="text-[8px] text-neutral-600 font-bold uppercase">Min wind</span>
-                <input type="range" min="0" max="15" step="1" value={currentRule.windMin} onChange={(e) => updateRule('windMin', parseInt(e.target.value))} className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer accent-blue-500" />
-              </div>
-              <div className="flex-1 space-y-2">
-                <span className="text-[8px] text-neutral-600 font-bold uppercase">Max wind</span>
-                <input type="range" min="0" max="25" step="1" value={currentRule.windMax} onChange={(e) => updateRule('windMax', parseInt(e.target.value))} className="w-full h-1.5 bg-neutral-800 rounded-full appearance-none cursor-pointer accent-blue-500" />
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <span className="text-[10px] font-black uppercase tracking-widest text-neutral-600 block">Tillåtna Vind-riktningar</span>
-              <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
-                {DEGREES.map(deg => (
-                  <button
-                    key={deg}
-                    onClick={() => toggleDir('windDirs', deg)}
-                    className={`p-2 rounded-xl border transition-all flex flex-col items-center gap-1 ${currentRule.windDirs.includes(deg) ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : 'bg-neutral-800/50 border-white/5 text-neutral-600'}`}
-                  >
-                    <DirectionArrow deg={deg} size={14} className={currentRule.windDirs.includes(deg) ? 'text-blue-400' : 'text-neutral-700'} />
-                    <span className="text-[8px] font-bold uppercase">{deg}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 md:p-8 bg-black/40 border-t border-white/5">
-          <button
-            onClick={onClose}
-            className="w-full py-4 bg-cyan-500 hover:bg-cyan-400 text-black font-black uppercase tracking-[0.2em] rounded-2xl transition-all active:scale-[0.98] shadow-lg shadow-cyan-500/20"
-          >
-            Spara Regelverk
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 export default App;
